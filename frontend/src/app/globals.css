@@ -1,0 +1,130 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* The palette below switches on prefers-color-scheme, so the `dark:` variant has to
+   match that too — otherwise every dark: utility stays inert in system dark mode.
+   An explicit .dark / .light class still wins over the media query. */
+@custom-variant dark {
+  &:where(.dark, .dark *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not(.light), :root:not(.light) *) {
+      @slot;
+    }
+  }
+}
+
+:root {
+  --radius: 0.625rem;
+  --background: oklch(0.995 0.002 250);
+  --foreground: oklch(0.21 0.02 260);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.02 260);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.02 260);
+  --primary: oklch(0.34 0.05 265);
+  --primary-foreground: oklch(0.985 0.002 250);
+  --secondary: oklch(0.96 0.005 250);
+  --secondary-foreground: oklch(0.29 0.03 262);
+  --muted: oklch(0.965 0.005 250);
+  --muted-foreground: oklch(0.53 0.02 258);
+  --accent: oklch(0.95 0.015 250);
+  --accent-foreground: oklch(0.29 0.03 262);
+  --destructive: oklch(0.58 0.21 25);
+  --destructive-foreground: oklch(0.985 0.002 250);
+  --border: oklch(0.91 0.006 255);
+  --input: oklch(0.91 0.006 255);
+  --ring: oklch(0.6 0.04 258);
+}
+
+.dark {
+  --background: oklch(0.17 0.015 260);
+  --foreground: oklch(0.96 0.003 250);
+  --card: oklch(0.21 0.017 260);
+  --card-foreground: oklch(0.96 0.003 250);
+  --popover: oklch(0.21 0.017 260);
+  --popover-foreground: oklch(0.96 0.003 250);
+  --primary: oklch(0.92 0.005 250);
+  --primary-foreground: oklch(0.23 0.02 260);
+  --secondary: oklch(0.27 0.02 260);
+  --secondary-foreground: oklch(0.96 0.003 250);
+  --muted: oklch(0.27 0.02 260);
+  --muted-foreground: oklch(0.71 0.015 255);
+  --accent: oklch(0.3 0.025 260);
+  --accent-foreground: oklch(0.96 0.003 250);
+  --destructive: oklch(0.65 0.19 24);
+  --destructive-foreground: oklch(0.98 0.002 250);
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 16%);
+  --ring: oklch(0.58 0.03 258);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    --background: oklch(0.17 0.015 260);
+    --foreground: oklch(0.96 0.003 250);
+    --card: oklch(0.21 0.017 260);
+    --card-foreground: oklch(0.96 0.003 250);
+    --popover: oklch(0.21 0.017 260);
+    --popover-foreground: oklch(0.96 0.003 250);
+    --primary: oklch(0.92 0.005 250);
+    --primary-foreground: oklch(0.23 0.02 260);
+    --secondary: oklch(0.27 0.02 260);
+    --secondary-foreground: oklch(0.96 0.003 250);
+    --muted: oklch(0.27 0.02 260);
+    --muted-foreground: oklch(0.71 0.015 255);
+    --accent: oklch(0.3 0.025 260);
+    --accent-foreground: oklch(0.96 0.003 250);
+    --destructive: oklch(0.65 0.19 24);
+    --destructive-foreground: oklch(0.98 0.002 250);
+    --border: oklch(1 0 0 / 12%);
+    --input: oklch(1 0 0 / 16%);
+    --ring: oklch(0.58 0.03 258);
+  }
+}
+
+/* Board columns scroll independently; keep the page itself from scrolling sideways. */
+.board-scroll {
+  scrollbar-width: thin;
+}
