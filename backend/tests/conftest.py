@@ -10,6 +10,7 @@ from sqlalchemy import create_engine, event  # noqa: E402
 from sqlalchemy.orm import sessionmaker  # noqa: E402
 from sqlalchemy.pool import StaticPool  # noqa: E402
 
+from app import db as db_module  # noqa: E402
 from app.config import get_settings  # noqa: E402
 from app.db import Base, get_session  # noqa: E402
 from app.main import app  # noqa: E402
@@ -75,8 +76,12 @@ def client(SessionTest):
     fetcher.http.limiter.min_interval = 0
     app.dependency_overrides[get_session] = _session
     app.dependency_overrides[get_fetcher] = lambda: fetcher
+    # Inline jobs open their own session; point that at the test database too.
+    original_factory = db_module.SessionLocal
+    db_module.SessionLocal = SessionTest
     with TestClient(app) as c:
         yield c
+    db_module.SessionLocal = original_factory
     app.dependency_overrides.clear()
 
 

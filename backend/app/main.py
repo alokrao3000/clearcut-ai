@@ -7,8 +7,9 @@ from fastapi.responses import JSONResponse
 import app.audit  # noqa: F401  registers the audit flush hook
 from app.config import get_settings
 from app.db import Base, SessionLocal, engine
-from app.routers import assets, directory, disclaimer, projects, tasks
+from app.routers import assets, directory, disclaimer, projects, scripts, tasks
 from app.seed import seed
+from app.services import handlers  # noqa: F401  registers the background job handlers
 from app.services.workflow import WorkflowError
 
 
@@ -32,8 +33,9 @@ def workflow_error(_request: Request, exc: WorkflowError):
     return JSONResponse(status_code=409, content={"detail": str(exc)})
 
 
-for r in (disclaimer, projects, assets, tasks, directory):
+for r in (disclaimer, projects, assets, tasks, directory, scripts):
     app.include_router(r.router)
+app.include_router(scripts.jobs_router)
 
 
 @app.get("/api/health")

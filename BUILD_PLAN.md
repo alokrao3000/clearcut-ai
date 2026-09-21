@@ -26,7 +26,7 @@
 
 ## Milestones
 
-### M1 — Core domain + API (this session)
+### M1 — Core domain + API — **done**
 - Data model: projects, assets, clearance tasks (layers), rightsholders (hierarchy + aliases + contact profile), rate cards, audit log, disclaimer acceptances.
 - Disclaimer gate: every mutating endpoint returns 428 until the current user has accepted the current disclaimer version.
 - URL ingest: platform detection, ID parsing, oEmbed/Archive/OpenGraph metadata, normalized immutable ingest payload.
@@ -36,10 +36,10 @@
 - Seed directory (sample entities, clearly marked as placeholder data).
 - Tests.
 
-### M2 — Frontend
+### M2 — Frontend — **done**
 - Next.js app: project list, project scope form, URL batch-ingest box, asset cards with thumbnails, task datagrid, Kanban board (drag = stage transition), rightsholder picker with match candidates, audit history drawer, disclaimer modal.
 
-### M3 — Script ingestion + workers
+### M3 — Script ingestion + workers — **done**
 - Redis + arq. Move ingest and mapping to jobs.
 - Parse .pdf (pypdf), .docx (python-docx), .fdx (XML). Scene-chunk the text.
 - Claude extraction with a strict schema: asset mentions, scene heading, quote, suggested layers. Every extracted asset links back to page/scene.

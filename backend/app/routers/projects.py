@@ -6,10 +6,11 @@ from app.deps import db, require_disclaimer
 from app.enums import Stage
 from app.models import Asset, ClearanceTask, Project
 from app.presenters import asset_out, board_card, task_out
-from app.schemas import (AssetOut, BoardCard, BudgetTotals, IngestRequest, IngestResultOut, ProjectCreate,
-                         ProjectOut, ProjectUpdate, TaskOut)
+from app.schemas import (AssetOut, BoardCard, BudgetTotals, IngestRequest, IngestResultOut, JobOut,
+                         ProjectCreate, ProjectOut, ProjectUpdate, TaskOut)
 from app.services import budget, pipeline
 from app.services.ingest import MetadataFetcher, get_fetcher
+from app.services.queue import enqueue
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 WRITE = [Depends(require_disclaimer)]
@@ -70,10 +71,21 @@ def delete_project(project_id: str, session: Session = Depends(db)):
     session.commit()
 
 
-@router.post("/{project_id}/ingest", response_model=list[IngestResultOut], dependencies=WRITE)
+@router.post("/{project_id}/ingest", response_model=list[IngestResultOut] | JobOut, dependencies=WRITE)
 def ingest(project_id: str, body: IngestRequest, session: Session = Depends(db),
            fetcher: MetadataFetcher = Depends(get_fetcher)):
     project = load_project(session, project_id)
+
+    if body.defer:
+        # Large pastes hold the request open for a while; hand them to the worker instead.
+        return enqueue(
+            session, "ingest_urls",
+            {"project_id": project.id,
+             "items": [{"url": str(i.url), "notes": i.notes, "usage_seconds": i.usage_seconds}
+                       for i in body.items]},
+            project_id=project.id,
+        )
+
     items = [(str(i.url), i.notes, i.usage_seconds) for i in body.items]
     outcomes = pipeline.ingest_into_project(session, project, items, fetcher)
     session.commit()

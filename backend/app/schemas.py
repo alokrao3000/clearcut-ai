@@ -148,6 +148,10 @@ class IngestItem(BaseModel):
 
 class IngestRequest(BaseModel):
     items: list[IngestItem] = Field(min_length=1, max_length=50)
+    defer: bool = Field(
+        default=False,
+        description="Queue the fetch as a background job and return immediately instead of waiting.",
+    )
 
 
 class AssetOut(ORM):
@@ -225,3 +229,70 @@ class AuditOut(ORM):
     actor_id: str
     reason: str | None
     at: datetime
+
+
+# ---------------------------------------------------------------- scripts (M3)
+
+class SceneOut(ORM):
+    id: str
+    index: int
+    heading: str
+    page_number: int | None
+    text: str
+
+
+class MentionOut(ORM):
+    id: str
+    scene_id: str
+    project_id: str
+    title: str
+    owner_name: str | None
+    kind: str
+    quote: str
+    suggested_layers: list[Layer]
+    confidence: float
+    reasoning: str | None
+    status: str
+    asset_id: str | None
+    created_at: datetime
+    scene_heading: str | None = None
+    scene_index: int | None = None
+    page_number: int | None = None
+
+
+class ScriptOut(ORM):
+    id: str
+    project_id: str
+    filename: str
+    media_type: str
+    byte_size: int
+    page_count: int | None
+    scene_count: int
+    status: str
+    error: str | None
+    extraction_model: str | None
+    created_at: datetime
+    mention_count: int = 0
+    job_id: str | None = None
+
+
+class ConfirmMentionRequest(BaseModel):
+    """Turn a proposed mention into a real asset with its layer tasks."""
+
+    usage_seconds: int | None = Field(default=None, ge=1)
+    layers: list[Layer] | None = Field(default=None, description="Overrides the suggested layers")
+    title: str | None = None
+    owner_name: str | None = None
+
+
+class JobOut(ORM):
+    id: str
+    kind: str
+    status: str
+    project_id: str | None
+    subject_id: str | None
+    result: dict | None
+    error: str | None
+    enqueued_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None

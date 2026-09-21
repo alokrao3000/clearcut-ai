@@ -3,12 +3,13 @@
 Pre-production asset sourcing and clearance workflow for film and media.
 See [BUILD_PLAN.md](BUILD_PLAN.md) for architecture decisions and milestones.
 
-**Status: M1 (core domain + API) and M2 (frontend) complete.** Script ingestion and workers are M3.
+**Status: M1 (core domain + API), M2 (frontend) and M3 (script ingestion + workers) complete.**
+Outreach packets and tokenized context views are M4.
 
 ## Run
 
 ```bash
-docker compose up -d --wait            # Postgres on localhost:5435
+docker compose up -d --wait            # Postgres 5435, Redis 6382, MinIO 9002/9003
 cd backend
 python -m venv .venv && .venv/Scripts/pip install -r requirements.txt
 cp .env.example .env                   # points at the compose database
@@ -98,3 +99,42 @@ Workflow rejections (409) surface as toasts carrying the server's own message, s
 cd frontend
 npx tsc --noEmit && npx eslint . && npm run build
 ```
+
+## Scripts and background jobs (M3)
+
+Upload a screenplay and it is parsed into scenes immediately; reading it with Claude happens
+as a background job, so a slow or unconfigured model never blocks the upload.
+
+```bash
+curl -X POST $B/api/projects/<id>/scripts -F "file=@screenplay.fdx"
+curl $B/api/scripts/<script_id>/scenes      # what the parser found
+curl $B/api/scripts/<script_id>/mentions    # what the extractor proposed
+curl -X POST $B/api/mentions/<mention_id>/confirm -H 'content-type: application/json' \
+  -d '{"usage_seconds": 40}'                # a human accepts -> asset + layer tasks
+```
+
+- **.pdf** (pypdf), **.docx** (python-docx) and **.fdx** (Final Draft XML) are supported. Scenes
+  split on sluglines (`INT.` / `EXT.` / `I/E` / `EST.`); `.fdx` uses its declared structure.
+  A scanned PDF with no text layer is rejected with a message rather than silently yielding nothing.
+- **Nothing the model says becomes an asset on its own.** Extraction writes *mentions*: a title,
+  the verbatim script quote, the scene and page it came from, suggested layers and a confidence.
+  Confirming one is a user action, and only then do the matcher and budget matrix run.
+- The uploaded file is never stored — only its parsed text.
+- Extraction needs credentials (`CLEARCUT_ANTHROPIC_API_KEY`, `ANTHROPIC_API_KEY`, or `ant auth login`).
+  Without them the script still parses and the job reports `extraction: unavailable`.
+
+### Workers
+
+Jobs run inline by default, so nothing extra is needed to develop or test. To run them out of
+process:
+
+```bash
+CLEARCUT_USE_WORKER=true .venv/Scripts/python -m arq app.worker.WorkerSettings
+```
+
+Set `CLEARCUT_USE_WORKER=true` for the API too, and script extraction, `POST .../ingest` with
+`{"defer": true}`, re-mapping and thumbnail caching all queue to Redis instead. If Redis is
+unreachable the enqueue falls back to running inline rather than losing the work. Job state is a
+row in `jobs`, readable at `GET /api/jobs/{id}`, so progress never depends on Redis being up.
+
+Thumbnail caching to MinIO is off until `CLEARCUT_THUMBNAIL_CACHE_ENABLED=true`.
