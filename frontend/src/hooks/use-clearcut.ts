@@ -35,6 +35,9 @@ export const keys = {
   inbox: (id: string) => ["inbox", id] as const,
   proposals: (id: string, status: string) => ["proposals", id, status] as const,
   ledger: (id: string) => ["ledger", id] as const,
+  me: ["me"] as const,
+  orgUsers: ["org-users"] as const,
+  exportSummary: (id: string) => ["export-summary", id] as const,
 };
 
 /** Any write can touch tasks, the board and the budget, so refresh the project view as a unit.
@@ -55,6 +58,14 @@ export function reportError(error: unknown, fallback = "Something went wrong") {
   if (error instanceof ApiError) {
     if (error.isDisclaimerRequired) {
       toast.error("Accept the disclaimer first", { description: error.message });
+      return;
+    }
+    if (error.isUnauthenticated) {
+      toast.error("Your session has ended", { description: "Sign in again to continue." });
+      return;
+    }
+    if (error.isForbidden) {
+      toast.error("Your role does not allow that", { description: error.message });
       return;
     }
     toast.error(error.isWorkflowError ? "Not allowed by the workflow" : fallback, {
@@ -542,5 +553,49 @@ export function useRejectProposal(projectId: string) {
     mutationFn: ({ id, reason }: { id: string; reason?: string }) => api.rejectProposal(id, reason),
     onSuccess: () => invalidateReplies(qc, projectId),
     onError: (e) => reportError(e, "Could not reject that change"),
+  });
+}
+
+
+// ---------------------------------------------------------------- auth (M6)
+
+/** The signed-in user and their organization. Disabled until a token exists. */
+export function useMe(enabled = true) {
+  return useQuery({
+    queryKey: keys.me,
+    queryFn: api.me,
+    enabled,
+    retry: false,  // a 401 is an answer, not a transient failure
+    staleTime: 60_000,
+  });
+}
+
+export function useOrgUsers(enabled = true) {
+  return useQuery({ queryKey: keys.orgUsers, queryFn: api.listOrgUsers, enabled });
+}
+
+export function useCreateOrgUser() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: api.createOrgUser,
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.orgUsers }),
+    onError: (e) => reportError(e, "Could not add that person"),
+  });
+}
+
+export function useUpdateOrgUser() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: Parameters<typeof api.updateOrgUser>[1] }) =>
+      api.updateOrgUser(id, body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.orgUsers }),
+    onError: (e) => reportError(e, "Could not update that person"),
+  });
+}
+
+export function useExportSummary(projectId: string) {
+  return useQuery({
+    queryKey: keys.exportSummary(projectId),
+    queryFn: () => api.exportSummary(projectId),
   });
 }

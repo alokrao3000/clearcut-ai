@@ -146,3 +146,19 @@ export const LEDGER_BASIS_LABEL: Record<string, string> = {
   estimate: "Estimated",
   none: "—",
 };
+
+// ------------------------------------------------------------ auth (M6)
+
+export const ROLE_LABEL: Record<string, string> = {
+  owner: "Owner",
+  admin: "Admin",
+  member: "Member",
+  viewer: "Viewer",
+};
+
+export const ROLE_HINT: Record<string, string> = {
+  owner: "Everything, including organization settings and other owners",
+  admin: "Manage people and the organization's directory entries",
+  member: "Do clearance work: ingest, map, budget, send, confirm",
+  viewer: "Read-only",
+};

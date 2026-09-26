@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 
-from app.enums import DistributionScope, Layer, ProductionTier, RightsholderKind, Stage
+from app.enums import DistributionScope, Layer, ProductionTier, RightsholderKind, Role, Stage
 
 
 class ORM(BaseModel):
@@ -634,3 +634,87 @@ class LedgerTotals(BaseModel):
 class LedgerOut(BaseModel):
     lines: list[LedgerLineOut]
     totals: LedgerTotals
+
+
+# ---------------------------------------------------------------- auth and tenancy (M6)
+
+class RegisterRequest(BaseModel):
+    organization_name: str = Field(min_length=1, max_length=200)
+    name: str = Field(min_length=1, max_length=200)
+    email: str = Field(min_length=3, max_length=300)
+    password: str = Field(min_length=12, max_length=200)
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class UserOut(BaseModel):
+    id: str
+    org_id: str
+    email: str
+    name: str
+    role: Role
+    is_active: bool
+    created_at: datetime
+    last_login_at: datetime | None
+
+
+class OrgOut(ORM):
+    id: str
+    name: str
+    slug: str
+    created_at: datetime
+
+
+class TokenOut(BaseModel):
+    """The bearer token exists only here. It is stored as a digest and never returned again."""
+
+    access_token: str
+    token_type: str = "bearer"
+    expires_at: datetime
+    user: UserOut
+
+
+class MeOut(BaseModel):
+    user: UserOut
+    organization: OrgOut
+
+
+class SessionOut(BaseModel):
+    id: str
+    token_hint: str
+    status: str = Field(description="active | expired | revoked")
+    created_at: datetime
+    expires_at: datetime
+    revoked_at: datetime | None
+    last_seen_at: datetime | None
+    client_ip: str | None
+    user_agent: str | None
+
+
+class UserCreate(BaseModel):
+    email: str = Field(min_length=3, max_length=300)
+    name: str = Field(min_length=1, max_length=200)
+    password: str = Field(min_length=12, max_length=200)
+    role: Role = Role.member
+
+
+class UserUpdate(BaseModel):
+    name: str | None = None
+    role: Role | None = None
+    is_active: bool | None = None
+
+
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=12, max_length=200)
+
+
+class HealthOut(BaseModel):
+    """Readiness, component by component, so a failing dependency is named rather than guessed."""
+
+    status: str = Field(description="ok | degraded")
+    version: str
+    components: dict[str, dict]

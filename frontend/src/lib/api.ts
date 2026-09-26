@@ -1,4 +1,5 @@
 import { isCodedError, type AddLayerBody, type ValidationError } from "@/lib/api-types";
+import { getToken, setToken } from "@/lib/auth-store";
 import type {
   Asset,
   AuditEntry,
@@ -21,20 +22,23 @@ import type {
   PacketGroup,
   PdfStatus,
   Project,
+  AppUser,
+  AuthToken,
+  ExportSummary,
+  Me,
   ProposedChange,
   Rightsholder,
+  Role,
   RightsholderKind,
   Scene,
   ScriptDocument,
   Stage,
   Task,
+  UserSession,
 } from "@/lib/types";
 
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE?.replace(/\/$/, "") ?? "http://localhost:8000";
-
-/** Placeholder identity until auth lands in M6; the backend reads X-User-Id. */
-export const USER_ID = process.env.NEXT_PUBLIC_USER_ID ?? "dev-user";
 
 export class ApiError extends Error {
   status: number;
@@ -61,6 +65,16 @@ export class ApiError extends Error {
     return this.status === 409;
   }
 
+  /** True when the session is missing, expired or revoked. */
+  get isUnauthenticated() {
+    return this.status === 401;
+  }
+
+  /** True when the caller is signed in but their role does not allow this. */
+  get isForbidden() {
+    return this.status === 403;
+  }
+
   private static messageFrom(status: number, detail: unknown): string {
     if (typeof detail === "string") return detail;
     if (Array.isArray(detail)) {
@@ -78,10 +92,11 @@ async function request<T>(
   init: RequestInit & { json?: unknown } = {},
 ): Promise<T> {
   const { json, ...rest } = init;
+  const token = getToken();
   const res = await fetch(`${API_BASE}${path}`, {
     ...rest,
     headers: {
-      "X-User-Id": USER_ID,
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(json !== undefined ? { "Content-Type": "application/json" } : {}),
       ...rest.headers,
     },
@@ -89,6 +104,11 @@ async function request<T>(
     cache: "no-store",
   });
 
+  if (res.status === 401 && token) {
+    // The session died while the app was open. Clear it so the UI falls back to the sign-in
+    // screen rather than showing a wall of failed queries.
+    setToken(null);
+  }
   if (!res.ok) {
     let detail: unknown = null;
     try {
@@ -303,4 +323,38 @@ export const api = {
     }),
 
   ledger: (projectId: string) => request<Ledger>(`/api/projects/${projectId}/ledger`),
+
+  // ---------------------------------------------------------- auth (M6)
+  register: (body: {
+    organization_name: string;
+    name: string;
+    email: string;
+    password: string;
+  }) => request<AuthToken>("/api/auth/register", { method: "POST", json: body }),
+  login: (body: { email: string; password: string }) =>
+    request<AuthToken>("/api/auth/login", { method: "POST", json: body }),
+  logout: () => request<void>("/api/auth/logout", { method: "POST" }),
+  me: () => request<Me>("/api/auth/me"),
+  listSessions: () => request<UserSession[]>("/api/auth/sessions"),
+  revokeSession: (id: string) =>
+    request<void>(`/api/auth/sessions/${id}/revoke`, { method: "POST" }),
+  changePassword: (body: { current_password: string; new_password: string }) =>
+    request<void>("/api/auth/password", { method: "POST", json: body }),
+
+  listOrgUsers: () => request<AppUser[]>("/api/users"),
+  createOrgUser: (body: { email: string; name: string; password: string; role: Role }) =>
+    request<AppUser>("/api/users", { method: "POST", json: body }),
+  updateOrgUser: (id: string, body: { name?: string; role?: Role; is_active?: boolean }) =>
+    request<AppUser>(`/api/users/${id}`, { method: "PATCH", json: body }),
+
+  // ---------------------------------------------------------- E&O export (M6)
+  exportSummary: (projectId: string) =>
+    request<ExportSummary>(`/api/projects/${projectId}/export`),
+  /** Absolute URLs: these are downloads, opened rather than fetched. */
+  exportRightsCsvUrl: (projectId: string) =>
+    `${API_BASE}/api/projects/${projectId}/export/rights.csv`,
+  exportLedgerCsvUrl: (projectId: string) =>
+    `${API_BASE}/api/projects/${projectId}/export/ledger.csv`,
+  exportReportUrl: (projectId: string, format: "html" | "pdf" = "html") =>
+    `${API_BASE}/api/projects/${projectId}/export/report.${format}`,
 };

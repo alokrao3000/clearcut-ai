@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.deps import db, require_disclaimer
+from app.deps import WRITE, db, scoped, session_org
 from app.enums import Stage
 from app.models import Asset, ClearanceTask, Project
 from app.presenters import asset_out, board_card, task_out
@@ -13,14 +13,11 @@ from app.services.ingest import MetadataFetcher, get_fetcher
 from app.services.queue import enqueue
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
-WRITE = [Depends(require_disclaimer)]
 
 
 def load_project(session: Session, project_id: str) -> Project:
-    project = session.get(Project, project_id)
-    if project is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
-    return project
+    """A project belonging to another organization is reported missing, never forbidden."""
+    return scoped(session.get(Project, project_id), session)
 
 
 def project_tasks(session: Session, project_id: str) -> list[ClearanceTask]:
@@ -32,12 +29,15 @@ def project_tasks(session: Session, project_id: str) -> list[ClearanceTask]:
 
 @router.get("", response_model=list[ProjectOut])
 def list_projects(session: Session = Depends(db)):
-    return session.scalars(select(Project).order_by(Project.created_at.desc())).all()
+    return session.scalars(
+        select(Project).where(Project.org_id == session_org(session))
+        .order_by(Project.created_at.desc())).all()
 
 
 @router.post("", response_model=ProjectOut, status_code=201, dependencies=WRITE)
 def create_project(body: ProjectCreate, session: Session = Depends(db)):
-    project = Project(name=body.name, distribution_scope=body.distribution_scope.value,
+    project = Project(org_id=session_org(session), name=body.name,
+                      distribution_scope=body.distribution_scope.value,
                       production_tier=body.production_tier.value)
     session.add(project)
     session.commit()

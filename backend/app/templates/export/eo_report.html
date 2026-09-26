@@ -1,0 +1,215 @@
+{#
+  The printable E&O report. Same one-template rule as the outreach letters: this renders
+  both the on-screen view and the PDF, so what is reviewed is what is filed.
+#}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Clearance record — {{ project.name }}</title>
+<style>
+  @page { size: Letter landscape; margin: 14mm 12mm 16mm; }
+  :root { --ink: #1a1a1a; --muted: #6b6559; --rule: #ddd8cc; --panel: #f7f5f0; --accent: #8a5a2b; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Iowan Old Style", Palatino, Georgia, serif; font-size: 9.5pt; line-height: 1.45;
+    color: var(--ink); background: #fff; margin: 0 auto; max-width: 10in; padding: 0.4in 0;
+  }
+  h1, h2, h3, th { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; }
+  header.top { border-bottom: 2px solid var(--ink); padding-bottom: 10px; margin-bottom: 16px; }
+  .kicker {
+    font-size: 7.5pt; text-transform: uppercase; letter-spacing: .1em; color: var(--muted);
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  }
+  h1 { font-size: 19pt; margin: 4px 0 2px; }
+  .sub { font-size: 9pt; color: var(--muted); }
+  h2 {
+    font-size: 8pt; text-transform: uppercase; letter-spacing: .1em; color: var(--muted);
+    margin: 20px 0 7px; padding-bottom: 4px; border-bottom: 1px solid var(--rule);
+  }
+  .cards { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 4px; }
+  .card {
+    border: 1px solid var(--rule); border-radius: 4px; padding: 8px 11px; background: var(--panel);
+    min-width: 120px;
+  }
+  .card .n { font-size: 15pt; font-weight: 700; }
+  .card .l { font-size: 7.5pt; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; font-size: 8pt; }
+  th {
+    text-align: left; font-size: 7pt; text-transform: uppercase; letter-spacing: .05em;
+    color: var(--muted); font-weight: 600; padding: 0 6px 4px 0; border-bottom: 1px solid var(--rule);
+  }
+  td { padding: 5px 6px 5px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  tr { page-break-inside: avoid; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tag {
+    display: inline-block; font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 6.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
+    border: 1px solid var(--rule); border-radius: 3px; padding: 1px 5px; background: var(--panel);
+  }
+  .actor-user { background: #e6f0e6; }
+  .actor-llm { background: #fdf0dc; }
+  .actor-scraper, .actor-system { background: #eceaf5; }
+  .note {
+    border: 1px solid var(--accent); border-left-width: 3px; border-radius: 4px;
+    padding: 9px 12px; margin: 12px 0; background: #fdfaf6; font-size: 9pt;
+  }
+  .warn { border-color: #b45309; background: #fffbeb; }
+  footer.legal {
+    margin-top: 22px; padding-top: 8px; border-top: 1px solid var(--rule);
+    font-size: 7.5pt; color: var(--muted); line-height: 1.4;
+  }
+  .muted { color: var(--muted); }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="kicker">Clearance record — errors &amp; omissions review</div>
+  <h1>{{ project.name }}</h1>
+  <div class="sub">
+    {{ scope_label }} · {{ tier_label }} · {{ organization.name }} ·
+    generated {{ generated_at }}
+  </div>
+</header>
+
+<div class="cards">
+  <div class="card"><div class="n">{{ summary.tasks }}</div><div class="l">Rights tracked</div></div>
+  <div class="card"><div class="n">{{ summary.signed }}</div><div class="l">Signed</div></div>
+  <div class="card"><div class="n">{{ summary.unassigned }}</div><div class="l">Unassigned</div></div>
+  <div class="card"><div class="n">{{ summary.assigned_by_a_person }}</div><div class="l">Human-assigned</div></div>
+  <div class="card"><div class="n">{{ summary.assigned_automatically }}</div><div class="l">Matcher-assigned</div></div>
+  <div class="card"><div class="n">{{ summary.ledger_entries }}</div><div class="l">Ledger entries</div></div>
+</div>
+
+<div class="note {{ '' if summary.reconciliation.available and summary.reconciliation.unmatched == 0 else 'warn' }}">
+  <strong>Independent database check.</strong> {{ summary.reconciliation.note }}
+</div>
+
+<h2>Rights, and how each one was decided</h2>
+<table>
+  <thead>
+    <tr>
+      <th style="width:20%">Material</th>
+      <th style="width:9%">Right</th>
+      <th style="width:11%">Stage</th>
+      <th style="width:15%">Rightsholder</th>
+      <th style="width:16%">Basis for that assignment</th>
+      <th class="num">Estimate</th>
+      <th class="num">Quoted</th>
+      <th class="num">Agreed</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for row in rights %}
+    <tr>
+      <td>
+        {{ row.title }}
+        <div class="muted" style="font-size:7pt; word-break:break-all">{{ row.source }}</div>
+      </td>
+      <td>{{ row.layer }}</td>
+      <td>{{ row.stage }}</td>
+      <td>
+        {{ row.rightsholder or "—" }}
+        {% if row.contact %}<div class="muted" style="font-size:7pt">{{ row.contact }}</div>{% endif %}
+      </td>
+      <td>{{ row.basis }}</td>
+      <td class="num">{{ row.estimate }}</td>
+      <td class="num">{{ row.quoted }}</td>
+      <td class="num">{{ row.agreed }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+{% if packets %}
+<h2>Outreach and disclosure</h2>
+<table>
+  <thead>
+    <tr>
+      <th style="width:22%">Rightsholder</th>
+      <th style="width:14%">Template</th>
+      <th style="width:16%">Sent</th>
+      <th style="width:18%">To</th>
+      <th class="num">Links issued</th>
+      <th class="num">Times opened</th>
+      <th class="num">Excerpts shared</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for p in packets %}
+    <tr>
+      <td>{{ p.rightsholder }}</td>
+      <td>{{ p.template }}</td>
+      <td>{{ p.sent_at or "Not sent" }}</td>
+      <td style="word-break:break-all">{{ p.to_email or "—" }}</td>
+      <td class="num">{{ p.links_issued }}</td>
+      <td class="num">{{ p.link_opens }}</td>
+      <td class="num">{{ p.excerpts }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<h2>Who and what made each change</h2>
+<p class="muted" style="font-size:8pt; margin:0 0 8px">
+  Actor types are recorded per entry, so an automated decision is distinguishable from a human
+  one. {% for actor, count in summary.actor_breakdown.items() %}<span class="tag actor-{{ actor }}">{{ actor }} {{ count }}</span> {% endfor %}
+</p>
+<table>
+  <thead>
+    <tr>
+      <th style="width:14%">When</th>
+      <th style="width:13%">Record</th>
+      <th style="width:9%">Actor</th>
+      <th style="width:16%">Identity</th>
+      <th style="width:14%">Field</th>
+      <th>Change</th>
+      <th style="width:16%">Stated reason</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for row in ledger %}
+    <tr>
+      <td>{{ row.at }}</td>
+      <td>{{ row.table }}</td>
+      <td><span class="tag actor-{{ row.actor_type }}">{{ row.actor_type }}</span></td>
+      <td style="word-break:break-all">{{ row.actor_id }}</td>
+      <td>{{ row.field }}</td>
+      <td>{{ row.change }}</td>
+      <td>{{ row.reason or "—" }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% if truncated %}
+<p class="muted" style="font-size:8pt">
+  Showing the {{ ledger|length }} most recent entries of {{ summary.ledger_entries }}. The
+  complete ledger is in the CSV export.
+</p>
+{% endif %}
+
+{% if acceptances %}
+<h2>Disclaimer acceptances</h2>
+<table>
+  <thead>
+    <tr><th style="width:30%">User</th><th style="width:25%">Version</th><th>Accepted</th></tr>
+  </thead>
+  <tbody>
+  {% for row in acceptances %}
+    <tr><td>{{ row.user }}</td><td>{{ row.version }}</td><td>{{ row.at }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<footer class="legal">
+  <p>{{ summary.disclaimer_text }}</p>
+  <p>This record is a export of what the system holds for {{ project.name }} as of
+  {{ generated_at }}. It evidences the process followed; it is not a legal opinion that any
+  right has been cleared, and it does not replace review by counsel.</p>
+</footer>
+
+</body>
+</html>

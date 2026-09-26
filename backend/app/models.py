@@ -20,10 +20,97 @@ def utcnow() -> datetime:
     return datetime.now(UTC)
 
 
+class Organization(Base):
+    """A tenant. Everything a customer owns hangs off one of these, directly or through a project."""
+
+    __tablename__ = "organizations"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    name: Mapped[str] = mapped_column(String(200))
+    slug: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    users: Mapped[list["User"]] = relationship(back_populates="organization",
+                                               cascade="all, delete-orphan")
+
+
+class User(Base):
+    """A person in exactly one organization.
+
+    Cross-org membership is deliberately not modelled: a clearance file is a legal record, and
+    "which organization was this person acting for?" must have one answer, not a current
+    selection. Someone who works for two productions gets two accounts.
+    """
+
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    org_id: Mapped[str] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
+    email: Mapped[str] = mapped_column(String(300), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    password_hash: Mapped[str] = mapped_column(String(200))
+    role: Mapped[str] = mapped_column(ENUM, default="member")  # owner|admin|member|viewer
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    organization: Mapped[Organization] = relationship(back_populates="users")
+    sessions: Mapped[list["UserSession"]] = relationship(back_populates="user",
+                                                         cascade="all, delete-orphan")
+
+
+class UserSession(Base):
+    """An opaque bearer token, stored as a digest.
+
+    Sessions rather than JWTs on purpose. A clearance record is evidence, and "revoke this
+    person's access now" has to actually mean now — a stateless token cannot promise that
+    without a revocation list, which is a session table wearing a disguise.
+    """
+
+    __tablename__ = "user_sessions"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    token_hint: Mapped[str] = mapped_column(String(12))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    client_ip: Mapped[str | None] = mapped_column(String(64))
+    user_agent: Mapped[str | None] = mapped_column(Text)
+
+    user: Mapped[User] = relationship(back_populates="sessions")
+
+
+class DbAuditLog(Base):
+    """Row-level changes recorded by a database trigger, independent of the application.
+
+    The application ledger in `audit_log` says who and why; this one says only that the bytes
+    changed. Its value is the gap between them: a row here with no matching application entry
+    is a change made outside the app — a console session, a migration, a bug — which is exactly
+    what an E&O reviewer needs surfaced rather than hidden.
+
+    Postgres only. The trigger is installed by migration and SQLite simply never writes here.
+    """
+
+    __tablename__ = "db_audit_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    table_name: Mapped[str] = mapped_column(String(80), index=True)
+    row_id: Mapped[str] = mapped_column(String(80), index=True)
+    action: Mapped[str] = mapped_column(String(10))
+    old_row: Mapped[dict | None] = mapped_column(JSON)
+    new_row: Mapped[dict | None] = mapped_column(JSON)
+    db_user: Mapped[str | None] = mapped_column(String(80))
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
 class Project(Base):
     __tablename__ = "projects"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    org_id: Mapped[str] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
     name: Mapped[str] = mapped_column(String(200))
     distribution_scope: Mapped[str] = mapped_column(ENUM)
     production_tier: Mapped[str] = mapped_column(ENUM)
@@ -454,6 +541,10 @@ class Rightsholder(Base):
     __tablename__ = "rightsholders"
 
     id: Mapped[str] = mapped_column(String(80), primary_key=True)  # stable slug, e.g. ent_warner_bros_animation
+    # NULL means the shared directory every tenant reads. A value means an entry one
+    # organization created for itself, which no other tenant can see or edit.
+    org_id: Mapped[str | None] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"),
+                                               index=True)
     name: Mapped[str] = mapped_column(String(300))
     kind: Mapped[str] = mapped_column(ENUM)
     parent_id: Mapped[str | None] = mapped_column(ForeignKey("rightsholders.id"))
@@ -501,6 +592,9 @@ class RateCard(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     rightsholder_id: Mapped[str | None] = mapped_column(ForeignKey("rightsholders.id"))  # NULL = industry default
+    # As on Rightsholder: NULL is the shared card, a value is one tenant's own rate.
+    org_id: Mapped[str | None] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"),
+                                               index=True)
     layer: Mapped[str] = mapped_column(ENUM)
     unit: Mapped[str] = mapped_column(ENUM)
     base_low: Mapped[Decimal] = mapped_column(Numeric(12, 2))
@@ -516,6 +610,7 @@ class AuditLog(Base):
     __tablename__ = "audit_log"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    org_id: Mapped[str | None] = mapped_column(String(32), index=True)
     table_name: Mapped[str] = mapped_column(String(80), index=True)
     row_id: Mapped[str] = mapped_column(String(80), index=True)
     action: Mapped[str] = mapped_column(String(10))  # insert | update | delete

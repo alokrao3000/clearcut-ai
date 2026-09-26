@@ -88,6 +88,16 @@ def run_job(job_id: str) -> None:
         if job.status in ("running", "complete"):
             return  # arq retried a job that is already in flight or done
 
+        # A job has no request behind it, so nothing has stamped the tenant on this
+        # session. Without this, everything the job audits lands with a null org and
+        # disappears from the owning organization's E&O trail.
+        if job.project_id:
+            from app.models import Project
+
+            project = session.get(Project, job.project_id)
+            if project is not None:
+                session.info["org_id"] = project.org_id
+
         job.status, job.started_at = "running", utcnow()
         session.commit()
 

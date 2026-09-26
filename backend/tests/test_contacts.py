@@ -4,12 +4,23 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
+from sqlalchemy import select
 
 from app.config import Settings
 from app.enums import Layer
-from app.models import Asset, ClearanceTask, Project, Rightsholder
+from app.models import Asset, ClearanceTask, Organization, Project, Rightsholder
 from app.services import contacts, evidence, providers
 from app.services.mapping import effective_contact
+
+def an_org(session) -> Organization:
+    """These are unit tests over the resolver, but a project still needs a tenant."""
+    org = session.scalar(select(Organization).limit(1))
+    if org is None:
+        org = Organization(name="Test Productions", slug="test-productions")
+        session.add(org)
+        session.flush()
+    return org
+
 
 # ---------------------------------------------------------------- evidence
 
@@ -131,7 +142,8 @@ def test_breakdown_explains_every_component():
 def resolved(SessionTest):
     """A master-recording task whose description credits RCA, resolved end to end."""
     with SessionTest() as session:
-        project = Project(name="Diner", distribution_scope="festival", production_tier="ultra_low")
+        project = Project(org_id=an_org(session).id, name="Diner",
+                          distribution_scope="festival", production_tier="ultra_low")
         session.add(project)
         session.flush()
         asset = Asset(
@@ -180,7 +192,8 @@ def test_a_resolved_task_gets_no_research_homework(resolved):
 
 def test_low_confidence_options_are_listed_but_blocked(SessionTest):
     with SessionTest() as session:
-        project = Project(name="P", distribution_scope="festival", production_tier="ultra_low")
+        project = Project(org_id=an_org(session).id, name="P",
+                          distribution_scope="festival", production_tier="ultra_low")
         session.add(project)
         session.flush()
         asset = Asset(project_id=project.id, source_type="url_ingest", raw_source="https://x.test/1",
@@ -245,7 +258,8 @@ def test_cheaper_alternative_is_surfaced_when_it_is_not_the_pick():
 def test_the_assigned_rightsholder_is_always_an_option(SessionTest):
     """A manual assignment is the strongest signal there is; never rank it out of existence."""
     with SessionTest() as session:
-        project = Project(name="P", distribution_scope="festival", production_tier="ultra_low")
+        project = Project(org_id=an_org(session).id, name="P",
+                          distribution_scope="festival", production_tier="ultra_low")
         session.add(project)
         session.flush()
         asset = Asset(project_id=project.id, source_type="url_ingest", raw_source="https://x.test/2",
@@ -274,7 +288,8 @@ def test_the_assigned_rightsholder_is_always_an_option(SessionTest):
 
 def test_an_auto_assigned_rightsholder_keeps_its_matcher_confidence(SessionTest):
     with SessionTest() as session:
-        project = Project(name="P", distribution_scope="festival", production_tier="ultra_low")
+        project = Project(org_id=an_org(session).id, name="P",
+                          distribution_scope="festival", production_tier="ultra_low")
         session.add(project)
         session.flush()
         asset = Asset(project_id=project.id, source_type="url_ingest", raw_source="https://x.test/3",

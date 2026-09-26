@@ -92,8 +92,37 @@
 - Project cost ledger: estimated vs quoted vs signed per task, with variance against the top of
   the estimate range and contingency applied only to the part still being guessed.
 
-### M6 — Hardening
-- Auth (org / user / roles), multi-tenancy, Alembic migrations, Postgres audit trigger, E&O audit export (CSV/PDF), observability, deployment.
+### M6 — Hardening — **done**
+- **Auth.** Opaque session tokens stored as SHA-256 digests, not JWTs: a clearance file is
+  evidence, and "revoke this person now" has to mean now. bcrypt for passwords, with the cost
+  configurable because it travels inside each hash. Login answers identically — and takes the
+  same time — for a wrong password, an unknown address and a disabled account.
+- **Roles** are ranked (`owner > admin > member > viewer`) and checked as "at least this", so
+  adding a role later cannot silently widen an existing permission. A role change or a
+  disabled account ends that user's sessions immediately.
+- **Multi-tenancy.** The organization rides on the session, the same way the audit actor
+  already did, so a loader cannot forget to pass something it never had to pass. Every
+  cross-tenant access is a **404, not a 403**: confirming an id is real but not yours turns an
+  id-guessing loop into a census of other tenants' projects. The seeded directory is shared
+  (`org_id IS NULL`) and read-only; a tenant's own entries are private to it.
+- **Alembic** owns the schema. `create_all` silently added tables and never columns, which is
+  why a model change used to appear to work and then fail at the first query. The tenancy
+  migration backfills existing projects — and their audit history — into an adopting
+  organization rather than failing on a NOT NULL column.
+- **PostgreSQL audit trigger** writes to a separate `db_audit_log`. The value is the *gap*
+  between it and the application ledger: a row with no matching application entry is a change
+  made outside the app. On SQLite the export says the check was unavailable rather than
+  implying a clean result.
+- **E&O export** (JSON, two CSVs and an HTML/PDF report) is built around provenance rather
+  than status: per item, who decided what, on what basis, and when, with the actor type on
+  every ledger entry so an automated decision is distinguishable from a human one.
+- **Observability**: a request id on every log line and response, JSON logs behind a flag, and
+  readiness that names the failing component. Only the database can make the service unready —
+  Redis, object storage, PDF and the LLM are reported but never fail the check, because the
+  product is deliberately usable without them.
+- **Deployment**: Dockerfiles for both halves (the API image installs the Pango stack, so PDF
+  works on a server where nobody can read an install hint), a production compose file where
+  migrations are their own service, and a documented `.env.example`.
 
 ## Open risks
 - **The rightsholder directory is the product.** Contacts and rate cards need a sourcing and verification process (manual research, user-contributed corrections with review). Seed data is placeholder only.

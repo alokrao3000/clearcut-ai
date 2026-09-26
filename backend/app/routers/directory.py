@@ -2,7 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.deps import db, require_disclaimer
+from app.deps import (NOT_FOUND, db, require_admin, require_disclaimer, scoped_project,
+                      session_org, visible_directory)
 from app.enums import LAYER_KINDS, Layer, RightsholderKind
 from app.models import AuditLog, Rightsholder, RightsholderAlias
 from app.presenters import rightsholder_out
@@ -10,13 +11,27 @@ from app.schemas import AuditOut, RightsholderCreate, RightsholderOut, Rightshol
 from app.services.mapping import normalize, score
 
 router = APIRouter(tags=["directory"])
-WRITE = [Depends(require_disclaimer)]
+# Directory writes are an admin concern: a corrected licensing address changes who
+# everyone in the organization will email.
+WRITE = [Depends(require_admin), Depends(require_disclaimer)]
 
 
 def load_rightsholder(session: Session, rid: str) -> Rightsholder:
+    """The shared catalogue, or one of this tenant's own entries. Nobody else's."""
     rh = session.get(Rightsholder, rid)
-    if rh is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Rightsholder not found")
+    if rh is None or (rh.org_id is not None and rh.org_id != session_org(session)):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, NOT_FOUND)
+    return rh
+
+
+def load_own_rightsholder(session: Session, rid: str) -> Rightsholder:
+    """As above, but refuses the shared catalogue: it is reference data, not tenant data."""
+    rh = load_rightsholder(session, rid)
+    if rh.org_id is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This is a shared directory entry and cannot be edited from here. Create your own "
+            "entry for it instead, which only your organization will see.")
     return rh
 
 
@@ -32,7 +47,8 @@ def _check_parent(session: Session, rid: str, parent_id: str | None) -> None:
 def search_rightsholders(q: str | None = None, kind: RightsholderKind | None = None, layer: Layer | None = None,
                          limit: int = Query(25, le=100), session: Session = Depends(db)):
     """Directory search for the manual rightsholder picker. Fuzzy on name and aliases."""
-    stmt = select(Rightsholder).options(selectinload(Rightsholder.aliases), selectinload(Rightsholder.children))
+    stmt = (select(Rightsholder).where(visible_directory(session))
+            .options(selectinload(Rightsholder.aliases), selectinload(Rightsholder.children)))
     if kind:
         stmt = stmt.where(Rightsholder.kind == kind.value)
     if layer:
@@ -59,10 +75,12 @@ def get_rightsholder(rid: str, session: Session = Depends(db)):
 
 @router.post("/api/rightsholders", response_model=RightsholderOut, status_code=201, dependencies=WRITE)
 def create_rightsholder(body: RightsholderCreate, session: Session = Depends(db)):
+    """Create an entry this organization owns. It is invisible to every other tenant."""
     if session.get(Rightsholder, body.id):
         raise HTTPException(status.HTTP_409_CONFLICT, "Rightsholder id already exists")
     _check_parent(session, body.id, body.parent_id)
-    rh = Rightsholder(**body.model_dump(exclude={"aliases", "kind"}), kind=body.kind.value, is_placeholder=False)
+    rh = Rightsholder(**body.model_dump(exclude={"aliases", "kind"}), kind=body.kind.value,
+                      org_id=session_org(session), is_placeholder=False)
     rh.aliases = [RightsholderAlias(alias=a) for a in dict.fromkeys(body.aliases)]
     session.add(rh)
     session.commit()
@@ -71,7 +89,7 @@ def create_rightsholder(body: RightsholderCreate, session: Session = Depends(db)
 
 @router.patch("/api/rightsholders/{rid}", response_model=RightsholderOut, dependencies=WRITE)
 def update_rightsholder(rid: str, body: RightsholderUpdate, session: Session = Depends(db)):
-    rh = load_rightsholder(session, rid)
+    rh = load_own_rightsholder(session, rid)
     data = body.model_dump(exclude_unset=True)
     if "parent_id" in data:
         _check_parent(session, rid, data["parent_id"])
@@ -84,8 +102,9 @@ def update_rightsholder(rid: str, body: RightsholderUpdate, session: Session = D
 @router.get("/api/audit", response_model=list[AuditOut])
 def audit_log(table: str | None = None, row_id: str | None = None, actor_type: str | None = None,
               limit: int = Query(200, le=1000), session: Session = Depends(db)):
-    """E&O trace: every change with the actor that made it."""
-    stmt = select(AuditLog).order_by(AuditLog.id.desc()).limit(limit)
+    """E&O trace: every change with the actor that made it, scoped to this organization."""
+    stmt = (select(AuditLog).where(AuditLog.org_id == session_org(session))
+            .order_by(AuditLog.id.desc()).limit(limit))
     if table:
         stmt = stmt.where(AuditLog.table_name == table)
     if row_id:

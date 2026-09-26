@@ -194,11 +194,18 @@ def test_docx_upload(project, accepted, stub_extractor):
 
 
 def test_script_upload_needs_the_disclaimer(project, accepted):
-    # Acceptance is per user; a colleague who has not accepted cannot upload.
+    """Acceptance is per user: a colleague in the same organization must accept it too."""
+    from tests.conftest import TEST_PASSWORD
+
+    accepted.post("/api/users", json={"email": "colleague@test.example", "name": "Colleague",
+                                      "password": TEST_PASSWORD, "role": "member"})
+    token = accepted.post("/api/auth/login", json={
+        "email": "colleague@test.example", "password": TEST_PASSWORD}).json()["access_token"]
+
     response = accepted.post(
         f"/api/projects/{project['id']}/scripts",
         files={"file": ("movie.fdx", fdx_bytes(("INT. A - DAY", "action")), "application/octet-stream")},
-        headers={"X-User-Id": "second-user"},
+        headers={"Authorization": f"Bearer {token}"},
     )
     assert response.status_code == 428
     assert response.json()["detail"]["code"] == "disclaimer_required"

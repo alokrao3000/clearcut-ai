@@ -6,7 +6,7 @@ import { Clapperboard } from "lucide-react";
 import "./globals.css";
 import { DisclaimerGate } from "@/components/disclaimer-gate";
 import { Providers } from "@/components/providers";
-import { USER_ID } from "@/lib/api";
+import { AccountMenu, AuthGate } from "@/components/auth-gate";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -40,14 +40,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <span className="hidden text-xs text-muted-foreground sm:inline">
                 Advisory drafts only — not legal clearance
               </span>
-              <span className="ml-auto rounded-md bg-muted px-2 py-1 font-mono text-xs text-muted-foreground">
-                {USER_ID}
-              </span>
+              <div className="ml-auto">
+                <AccountMenu />
+              </div>
             </div>
           </header>
 
           <main className="mx-auto w-full max-w-[1600px] flex-1 px-4 py-6 sm:px-6">
-            {children}
+            {/* Nothing behind the gate renders, and nothing behind it fetches, until a
+                session resolves — otherwise every query fires and fails with a 401. */}
+            <AuthGate>{children}</AuthGate>
           </main>
 
           <DisclaimerGate />

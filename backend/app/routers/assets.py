@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.audit import Actor, set_actor
-from app.deps import current_user_id, db, require_disclaimer
+from app.deps import NOT_FOUND, WRITE, current_user_id, db, scoped
 from app.enums import ActorType
 from app.models import Asset
 from app.presenters import asset_out, task_out
@@ -10,13 +10,14 @@ from app.schemas import AddLayerRequest, AssetOut, AssetUpdate, TaskOut
 from app.services import pipeline
 
 router = APIRouter(prefix="/api/assets", tags=["assets"])
-WRITE = [Depends(require_disclaimer)]
 
 
 def load_asset(session: Session, asset_id: str) -> Asset:
+    """Scoped through the asset's project; an asset carries no org_id of its own."""
     asset = session.get(Asset, asset_id)
     if asset is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Asset not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, NOT_FOUND)
+    scoped(asset.project, session)
     return asset
 
 

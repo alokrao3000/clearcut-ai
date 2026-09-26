@@ -85,6 +85,20 @@ class RateUnit(StrEnum):
     per_image = "per_image"
 
 
+class Role(StrEnum):
+    """What a user may do. Ordered: each role can do everything the one below it can."""
+
+    owner = "owner"      # org settings, billing, delete the organization
+    admin = "admin"      # manage users, edit the organization's directory entries
+    member = "member"    # do clearance work: ingest, map, budget, send, confirm
+    viewer = "viewer"    # read only
+
+
+# Rank, so a check is "at least this role" rather than a set membership test that quietly
+# forgets a role when a new one is added.
+ROLE_RANK: dict[Role, int] = {Role.viewer: 0, Role.member: 1, Role.admin: 2, Role.owner: 3}
+
+
 class ActorType(StrEnum):
     user = "user"
     system = "system"

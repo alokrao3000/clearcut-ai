@@ -1,4 +1,4 @@
-from tests.conftest import ingest, tasks_by_layer
+from tests.conftest import TEST_PASSWORD, ingest, tasks_by_layer
 
 RICK = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 LOONEY = "https://www.youtube.com/watch?v=looney0001"
@@ -16,8 +16,24 @@ def test_writes_blocked_until_disclaimer_accepted(client):
 
     client.post("/api/disclaimer/accept")
     assert client.post("/api/projects", json=body).status_code == 201
-    # Acceptance is per user.
-    assert client.post("/api/projects", json=body, headers={"X-User-Id": "someone-else"}).status_code == 428
+
+
+def test_disclaimer_acceptance_is_per_user_not_per_organization(client):
+    """A colleague joining an organization has to accept it themselves."""
+    client.post("/api/disclaimer/accept")
+    body = {"name": "X", "distribution_scope": "festival", "production_tier": "ultra_low"}
+    assert client.post("/api/projects", json=body).status_code == 201
+
+    created = client.post("/api/users", json={
+        "email": "colleague@test.example", "name": "Colleague",
+        "password": TEST_PASSWORD, "role": "member"})
+    assert created.status_code == 201, created.text
+    token = client.post("/api/auth/login", json={
+        "email": "colleague@test.example", "password": TEST_PASSWORD}).json()["access_token"]
+
+    colleague = {"Authorization": f"Bearer {token}"}
+    assert client.get("/api/projects", headers=colleague).status_code == 200
+    assert client.post("/api/projects", json=body, headers=colleague).status_code == 428
 
 
 # ---------------------------------------------------------------- ingest + mapping
@@ -133,7 +149,8 @@ def test_manual_override_is_audited_and_locks_task(accepted, project):
     assert actors[0] == ("insert", "scraper", "ingest:youtube")
     assert ("update", "system", "budget_matrix") in actors
     override = next(h for h in history if "rightsholder_id" in h["changes"] and h["actor_type"] == "user")
-    assert override["actor_id"] == "dev-user" and override["reason"] == "Per PRO lookup"
+    me = accepted.get("/api/auth/me").json()["user"]
+    assert override["actor_id"] == me["id"] and override["reason"] == "Per PRO lookup"
     assert override["changes"]["rightsholder_id"] == [None, "ent_sony_music_publishing"]
 
     master = tasks_by_layer(accepted, res["asset_id"])["master_recording"]
@@ -193,8 +210,18 @@ def test_directory_search_and_hierarchy(accepted):
     labels = accepted.get("/api/rightsholders", params={"layer": "master_recording"}).json()
     assert {r["kind"] for r in labels} <= {"label", "individual"}
 
+    # The seeded catalogue is shared reference data and is not editable through the API.
     r = accepted.patch("/api/rightsholders/ent_warner_bros_discovery",
                        json={"parent_id": "ent_warner_bros_animation"})
+    assert r.status_code == 409
+    assert "shared directory entry" in r.json()["detail"]
+
+    # The cycle guard still bites on an entry this organization owns.
+    accepted.post("/api/rightsholders", json={"id": "ent_own_parent", "name": "Own Parent",
+                                              "kind": "studio"})
+    accepted.post("/api/rightsholders", json={"id": "ent_own_child", "name": "Own Child",
+                                              "kind": "studio", "parent_id": "ent_own_parent"})
+    r = accepted.patch("/api/rightsholders/ent_own_parent", json={"parent_id": "ent_own_child"})
     assert r.status_code == 422  # cycle
 
 

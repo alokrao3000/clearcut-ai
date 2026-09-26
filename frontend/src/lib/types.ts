@@ -510,3 +510,68 @@ export interface Ledger {
   lines: LedgerLine[];
   totals: LedgerTotals;
 }
+
+// ------------------------------------------------------------ auth (M6)
+
+export const ROLES = ["owner", "admin", "member", "viewer"] as const;
+export type Role = (typeof ROLES)[number];
+
+export interface AppUser {
+  id: string;
+  org_id: string;
+  email: string;
+  name: string;
+  role: Role;
+  is_active: boolean;
+  created_at: string;
+  last_login_at: string | null;
+}
+
+export interface Organization {
+  id: string;
+  name: string;
+  slug: string;
+  created_at: string;
+}
+
+/** Returned once, by login or register. The token is stored as a digest server-side. */
+export interface AuthToken {
+  access_token: string;
+  token_type: string;
+  expires_at: string;
+  user: AppUser;
+}
+
+export interface Me {
+  user: AppUser;
+  organization: Organization;
+}
+
+export interface UserSession {
+  id: string;
+  token_hint: string;
+  status: "active" | "expired" | "revoked";
+  created_at: string;
+  expires_at: string;
+  revoked_at: string | null;
+  last_seen_at: string | null;
+  client_ip: string | null;
+  user_agent: string | null;
+}
+
+export interface ExportSummary {
+  tasks: number;
+  unassigned: number;
+  by_stage: Record<string, number>;
+  assigned_automatically: number;
+  assigned_by_a_person: number;
+  signed: number;
+  packets: number;
+  context_links: number;
+  ledger_entries: number;
+  actor_breakdown: Record<string, number>;
+  reconciliation: { available: boolean; unmatched: number; note: string };
+  disclaimer_version: string;
+  disclaimer_text: string;
+  generated_at: string;
+}

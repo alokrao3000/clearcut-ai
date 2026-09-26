@@ -3,9 +3,10 @@
 Pre-production asset sourcing and clearance workflow for film and media.
 See [BUILD_PLAN.md](BUILD_PLAN.md) for architecture decisions and milestones.
 
-**Status: M1 (core domain + API), M2 (frontend), M3 (script ingestion + workers), M3.5 (contact
-resolution), M4 (outreach packets + secure context views) and M5 (mail loop + cost ledger)
-complete.** Auth, multi-tenancy and migrations are M6.
+**Status: M1–M6 complete.** Core domain and API, frontend, script ingestion and workers,
+contact resolution, outreach packets and secure context views, the mail loop and cost ledger,
+and hardening: authentication, multi-tenancy, Alembic migrations, a PostgreSQL audit trigger,
+the E&O export, observability and deployment.
 
 ## Run
 
@@ -14,8 +15,17 @@ docker compose up -d --wait            # Postgres 5435, Redis 6382, MinIO 9002/9
 cd backend
 python -m venv .venv && .venv/Scripts/pip install -r requirements.txt
 cp .env.example .env                   # points at the compose database
+.venv/Scripts/python -m alembic upgrade head
 .venv/Scripts/python -m uvicorn app.main:app --reload --port 8000
 ```
+
+The API refuses to start if the database is behind the migrations rather than half-working.
+On a single-process dev box `CLEARCUT_AUTO_MIGRATE=true` migrates on boot instead; in
+production the `migrate` service in `docker-compose.prod.yml` owns that step, because several
+replicas starting together would race each other through the same DDL.
+
+Open http://localhost:3000 and create an organization — the first user of a new organization
+is its owner.
 
 Open http://localhost:8000/docs for the interactive API. Without `.env` the app falls back to a local SQLite file.
 
@@ -79,6 +89,10 @@ The directory and rate cards in `backend/app/seed.py` are **unverified placehold
 | Packets | `GET/PATCH/DELETE /api/packets/{id}`, `GET .../preview`, `GET .../pdf`, `POST .../finalize`, `POST .../excerpts`, `DELETE /api/excerpts/{id}` |
 | Context views | `GET/POST /api/packets/{id}/context-views`, `POST /api/context-views/{id}/revoke`, `GET .../accesses` |
 | Public (no auth) | `GET /view/{token}`, `GET /view/{token}/excerpt/{id}.png` |
+| Auth | `POST /api/auth/register`, `/login`, `/logout`, `GET /api/auth/me`, `/sessions`, `POST /api/auth/password` |
+| Users | `GET/POST /api/users`, `PATCH /api/users/{id}`, `GET/PATCH /api/org` |
+| E&O export | `GET /api/projects/{id}/export`, `/export/rights.csv`, `/export/ledger.csv`, `/export/report.html`, `/export/report.pdf` |
+| Health | `GET /api/health` (liveness), `GET /api/health/ready` (per-component readiness) |
 | Mail | `POST /api/packets/{id}/send`, `GET /api/packets/{id}/thread`, `GET /api/projects/{id}/inbox` |
 | Replies | `GET /api/projects/{id}/proposed-changes`, `POST /api/proposed-changes/{id}/apply`, `POST .../reject` |
 | Ledger | `GET /api/projects/{id}/ledger` |
@@ -99,6 +113,8 @@ datagrid, dnd-kit for the board, TanStack Query for server state.
 | `/projects/{id}/outreach` | Tasks bundled by licensing desk, letter drafting, excerpt sharing, context links and their access logs |
 | `/projects/{id}/replies` | Inbox of replies and the confirm-or-reject queue, each proposal quoting the reply it came from |
 | `/projects/{id}/ledger` | Estimated vs quoted vs signed per task, with variance against the estimate |
+| `/projects/{id}/record` | The E&O clearance record, with CSV and PDF export |
+| `/settings` | People in the organization: roles, and disabling accounts |
 
 Clicking any task opens a drawer with the allowed transitions, the rightsholder picker (filtered to the
 kinds that can own that layer), the matcher's candidates and scores, the estimate breakdown, quote and
@@ -303,3 +319,102 @@ moves under a named user with a reason pointing back at the reading.
   real quote is double counting;
 - closed tasks reported but excluded from totals — a denied item with a quote on it is part of how
   a project got where it is.
+
+## Auth, tenancy and hardening (M6)
+
+### Accounts and sessions
+
+Registering creates an organization and its first user, who is necessarily its owner. There
+is **no development bypass** — an unauthenticated request is unauthenticated on every machine.
+
+Sessions are opaque bearer tokens stored as SHA-256 digests, not JWTs. A clearance file is
+evidence, and "revoke this person now" has to actually mean now; a stateless token cannot
+promise that without a revocation list, which is a session table wearing a disguise. Changing
+a password, changing a role, or disabling an account ends that user's sessions at once.
+
+Login is deliberately uninformative: a wrong password, an unknown address and a disabled
+account produce the same answer in the same time, so the endpoint cannot be used to find out
+who has an account.
+
+| Role | Can |
+|---|---|
+| `viewer` | Read everything in the organization |
+| `member` | Do clearance work: ingest, map, budget, send, confirm replies |
+| `admin` | …and manage people and the organization's directory entries |
+| `owner` | …and organization settings, and other owners |
+
+Checks ask for "at least this role", so adding a role later cannot silently widen an existing
+permission. The last active owner cannot be demoted or disabled.
+
+### Multi-tenancy
+
+Everything belongs to an organization, directly or through a project. The organization rides
+on the database session — the same mechanism the audit actor already used — so a router
+cannot forget to pass something it never had to pass.
+
+**A cross-tenant access is a 404, not a 403.** A 403 confirms the id is real and simply not
+yours, which turns an id-guessing loop into a census of other tenants' projects.
+
+The rightsholder directory is split: `org_id IS NULL` is the seeded catalogue every tenant
+reads and nobody edits through the API, and a row with an `org_id` is one organization's
+private entry. That keeps one customer's corrected contact details out of everyone else's
+file without forking the whole directory per tenant.
+
+### Migrations
+
+Alembic owns the schema from M6. `Base.metadata.create_all` quietly added new *tables* and
+never new *columns*, so a model change appeared to work and then failed at the first query.
+
+```bash
+alembic upgrade head          # a deploy step, not a startup step
+alembic check                 # fails if the models have drifted from the migrations
+```
+
+The tenancy migration handles an existing install: it adds `org_id` nullable, moves everything
+that predates multi-tenancy — projects *and* their audit history — into one adopting
+organization, and only then makes the column required.
+
+### The independent database check
+
+A PostgreSQL trigger writes every row-level change to `db_audit_log`, separately from the
+application's own ledger. The point is the **gap** between them: a trigger row with no matching
+application entry is a change made outside the app — a psql session, a migration, a bug. That
+is not necessarily wrong, but it has to be visible.
+
+SQLite has no equivalent, so on a dev database the export states that the check was
+unavailable rather than implying a clean bill of health.
+
+### E&O export
+
+`/projects/{id}/record` and `GET /api/projects/{id}/export/…`. Built around provenance rather
+than status, because a reviewer is not asking "what is the status?" — the board answers that —
+but "show me, per item, who decided what, on what basis, and when":
+
+- every clearance task with **how** its rightsholder was assigned: the matcher with its score,
+  or a named person overriding it;
+- the money at each stage, the outreach that went out, and every tokenized link issued and
+  opened;
+- the field-level ledger with the actor type on each entry, so an automated decision is
+  visibly distinguishable from a human one;
+- the reconciliation line above.
+
+The printable report shows the most recent entries; the ledger CSV carries all of them.
+
+### Observability and deployment
+
+Every response carries `X-Request-Id`, and every log line carries the same id.
+`CLEARCUT_LOG_JSON=true` switches to structured logs for a collector.
+
+`GET /api/health` is liveness. `GET /api/health/ready` reports each component and returns 503
+only when the **database** is down — Redis, object storage, PDF rendering and the LLM are
+reported but never fail the check, because the product is deliberately usable without any of
+them, and a readiness probe that restarts on a missing Redis is worse than no probe.
+
+```bash
+cp .env.example .env    # then edit it
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+The API image installs the Pango stack, so PDF rendering works on a server where nobody can
+read an install hint. Migrations run as their own `migrate` service that must complete before
+the API starts.

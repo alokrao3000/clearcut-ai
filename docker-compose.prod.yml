@@ -1,0 +1,86 @@
+# Production-shaped stack. Differs from docker-compose.yml in three ways that matter:
+# migrations run once as their own service, secrets come from the environment rather than
+# being baked in, and the API does not migrate on boot.
+#
+#   cp .env.example .env && edit it
+#   docker compose -f docker-compose.prod.yml up -d --build
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-clearcut}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-clearcut}
+    volumes:
+      - clearcut_pg_prod:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-clearcut}"]
+      interval: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "60", "1", "--appendonly", "no"]
+    volumes:
+      - clearcut_redis_prod:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 20
+
+  # Runs to completion, then the API starts. One process owns the DDL, so replicas cannot
+  # race each other through it. This is also where the Postgres audit trigger is installed.
+  migrate:
+    build: ./backend
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      CLEARCUT_DATABASE_URL: ${CLEARCUT_DATABASE_URL:?set CLEARCUT_DATABASE_URL in .env}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build: ./backend
+    env_file: .env
+    environment:
+      CLEARCUT_AUTO_MIGRATE: "false"   # the migrate service owns this
+      CLEARCUT_LOG_JSON: "true"
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker:
+    build: ./backend
+    command: ["arq", "app.worker.WorkerSettings"]
+    env_file: .env
+    environment:
+      CLEARCUT_USE_WORKER: "true"
+      CLEARCUT_LOG_JSON: "true"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_BASE: ${PUBLIC_API_BASE:-http://localhost:8000}
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  clearcut_pg_prod:
+  clearcut_redis_prod:

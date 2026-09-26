@@ -2,6 +2,14 @@ import os
 
 os.environ.setdefault("CLEARCUT_DATABASE_URL", "sqlite://")
 os.environ.setdefault("CLEARCUT_SEED_ON_STARTUP", "false")
+# Every test registers an organization, and bcrypt at production cost would dominate the
+# run. The cost lives inside each hash, so turning it down here changes nothing about how
+# production hashes are stored or verified.
+os.environ.setdefault("CLEARCUT_BCRYPT_ROUNDS", "4")
+# Each test builds its own schema on its own engine, but the app still runs its startup
+# check against the configured (throwaway, in-memory) one. Letting it migrate keeps that
+# code path exercised; it happens once per process because the engine is module-level.
+os.environ.setdefault("CLEARCUT_AUTO_MIGRATE", "true")
 
 import httpx  # noqa: E402
 import pytest  # noqa: E402
@@ -64,8 +72,13 @@ def SessionTest(engine):
     return maker
 
 
+# A password that satisfies the strength floor without being interesting.
+TEST_PASSWORD = "correct-horse-battery-staple"
+
+
 @pytest.fixture
-def client(SessionTest):
+def anon(SessionTest):
+    """A client with no credentials at all, for checking that routes actually require them."""
     def _session():
         with SessionTest() as s:
             yield s
@@ -85,10 +98,46 @@ def client(SessionTest):
     app.dependency_overrides.clear()
 
 
+def register(client, *, org="Test Productions", email="owner@test.example", name="Owner"):
+    """Create an organization and sign its owner in. Returns the client, authenticated."""
+    r = client.post("/api/auth/register", json={
+        "organization_name": org, "email": email, "name": name, "password": TEST_PASSWORD})
+    assert r.status_code == 201, r.text
+    return r.json()
+
+
+@pytest.fixture
+def client(anon):
+    """Signed in as an owner, but the disclaimer is not accepted yet.
+
+    Matches the pre-M6 meaning of this fixture: reads work, writes return 428.
+    """
+    token = register(anon)["access_token"]
+    anon.headers["Authorization"] = f"Bearer {token}"
+    return anon
+
+
 @pytest.fixture
 def accepted(client):
     assert client.post("/api/disclaimer/accept").json()["accepted"] is True
     return client
+
+
+@pytest.fixture
+def other_org(anon, client):
+    """A second, fully separate tenant, for proving the boundary holds.
+
+    Built on the same `anon` client so both organizations share one database, then handed
+    back as its own client object carrying the other token.
+    """
+    from fastapi.testclient import TestClient as _TC
+
+    token = register(anon, org="Rival Pictures", email="rival@test.example",
+                     name="Rival")["access_token"]
+    other = _TC(app)
+    other.headers["Authorization"] = f"Bearer {token}"
+    other.post("/api/disclaimer/accept")
+    return other
 
 
 @pytest.fixture

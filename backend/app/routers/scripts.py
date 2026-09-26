@@ -4,7 +4,8 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.audit import Actor, set_actor
 from app.config import get_settings
-from app.deps import current_user_id, db, require_disclaimer
+from app.deps import (NOT_FOUND, WRITE, current_user_id, db, scoped, scoped_project,
+                      session_org)
 from app.enums import ActorType, IngestStatus, Layer, Platform, SourceType
 from app.models import Asset, AssetMention, ClearanceTask, Job, Project, Scene, ScriptDocument
 from app.presenters import asset_out
@@ -14,13 +15,13 @@ from app.services.queue import enqueue
 from app.services.scripts import ScriptParseError, parse_script
 
 router = APIRouter(tags=["scripts"])
-WRITE = [Depends(require_disclaimer)]
 
 
 def load_script(session: Session, script_id: str) -> ScriptDocument:
     script = session.get(ScriptDocument, script_id)
     if script is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Script not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, NOT_FOUND)
+    scoped(script.project, session)
     return script
 
 
@@ -60,9 +61,7 @@ async def upload_script(project_id: str, file: UploadFile = File(...), session: 
     The file itself is never stored — only its parsed text, which is what M4's tokenized
     context views are allowed to quote from.
     """
-    project = session.get(Project, project_id)
-    if project is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
+    project = scoped_project(session, project_id)
 
     settings = get_settings()
     data = await file.read()
@@ -95,6 +94,7 @@ async def upload_script(project_id: str, file: UploadFile = File(...), session: 
 
 @router.get("/api/projects/{project_id}/scripts", response_model=list[ScriptOut])
 def list_scripts(project_id: str, session: Session = Depends(db)):
+    scoped_project(session, project_id)
     scripts = session.scalars(
         select(ScriptDocument).where(ScriptDocument.project_id == project_id)
         .order_by(ScriptDocument.created_at.desc())).all()
@@ -130,7 +130,8 @@ def confirm_mention(mention_id: str, body: ConfirmMentionRequest, session: Sessi
     """A human accepts the extractor's proposal, and only then does an asset exist."""
     mention = session.get(AssetMention, mention_id)
     if mention is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Mention not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, NOT_FOUND)
+    scoped_project(session, mention.project_id)
     if mention.status == "confirmed" and mention.asset_id:
         return asset_out(session.get(Asset, mention.asset_id))
 
@@ -188,7 +189,8 @@ def confirm_mention(mention_id: str, body: ConfirmMentionRequest, session: Sessi
 def dismiss_mention(mention_id: str, session: Session = Depends(db)):
     mention = session.get(AssetMention, mention_id)
     if mention is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Mention not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, NOT_FOUND)
+    scoped_project(session, mention.project_id)
     mention.status = "dismissed"
     session.commit()
     return _mention_out(mention)
@@ -203,15 +205,21 @@ jobs_router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 def get_job(job_id: str, session: Session = Depends(db)):
     job = session.get(Job, job_id)
     if job is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Job not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, NOT_FOUND)
+    if job.project_id:
+        scoped_project(session, job.project_id)
     return job
 
 
 @jobs_router.get("", response_model=list[JobOut])
 def list_jobs(project_id: str | None = None, kind: str | None = None, limit: int = 50,
               session: Session = Depends(db)):
-    stmt = select(Job).order_by(Job.enqueued_at.desc()).limit(min(limit, 200))
+    # A job list with no project is scoped to this tenant's projects rather than global.
+    own = select(Project.id).where(Project.org_id == session_org(session))
+    stmt = (select(Job).where(Job.project_id.in_(own))
+            .order_by(Job.enqueued_at.desc()).limit(min(limit, 200)))
     if project_id:
+        scoped_project(session, project_id)
         stmt = stmt.where(Job.project_id == project_id)
     if kind:
         stmt = stmt.where(Job.kind == kind)

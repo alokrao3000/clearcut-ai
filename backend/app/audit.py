@@ -100,8 +100,13 @@ def _write_audit(session: Session, _flush_context) -> None:
     actor: Actor = session.info.get("actor") or UNATTRIBUTED
     rows = []
 
+    # Tenant stamped from the request's session, so an E&O export can never cross
+    # organizations even though the ledger is one physical table.
+    org_id = session.info.get("org_id")
+
     def add(state, action, changes):
         rows.append({
+            "org_id": org_id,
             "table_name": state.mapper.local_table.name,
             "row_id": _row_id(state),
             "action": action,

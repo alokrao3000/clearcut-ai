@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.audit import Actor, acting_as, set_actor
 from app.config import get_settings
 from app.db import get_session
-from app.deps import current_user_id, db, require_disclaimer
+from app.deps import NOT_FOUND, WRITE, current_user_id, db, scoped, scoped_project
 from app.enums import ActorType, Layer, Stage
 from app.models import (Asset, ClearanceTask, InboundMessage, MailThread, OutboundMessage,
                         OutreachPacket, PacketTask, ProposedChange, ReplyIntent, utcnow)
@@ -30,7 +30,6 @@ log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["mail"])
 public_router = APIRouter(tags=["mail webhook"], include_in_schema=False)
-WRITE = [Depends(require_disclaimer)]
 
 
 # ---------------------------------------------------------------- presenters
@@ -75,6 +74,7 @@ def thread_out(thread: MailThread, settings) -> ThreadOut:
 
 
 def _packet(session: Session, packet_id: str) -> OutreachPacket:
+    """Loaded and scoped exactly as in the outreach router; the webhook never uses this."""
     packet = session.scalar(
         select(OutreachPacket).where(OutreachPacket.id == packet_id)
         .options(selectinload(OutreachPacket.rightsholder), selectinload(OutreachPacket.project),
@@ -82,7 +82,8 @@ def _packet(session: Session, packet_id: str) -> OutreachPacket:
                  selectinload(OutreachPacket.items).selectinload(PacketTask.task)
                  .selectinload(ClearanceTask.asset)))
     if packet is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Packet not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, NOT_FOUND)
+    scoped(packet.project, session)
     return packet
 
 
@@ -180,6 +181,14 @@ def _tasks_for(thread: MailThread) -> list[ClearanceTask]:
     return [item.task for item in thread.packet.items if item.task is not None]
 
 
+def _org_of(session: Session, thread: MailThread) -> str | None:
+    """The organization a reply belongs to, reached through packet -> project."""
+    from app.models import Project
+
+    project = session.get(Project, thread.packet.project_id)
+    return project.org_id if project is not None else None
+
+
 @public_router.post("/api/mail/inbound", response_model=InboundAck)
 async def inbound(request: Request, session: Session = Depends(get_session)):
     """Receive a reply, store it, and read it if we can.
@@ -214,6 +223,11 @@ async def inbound(request: Request, session: Session = Depends(get_session)):
         select(MailThread).where(MailThread.token == token)
         .options(selectinload(MailThread.packet).selectinload(OutreachPacket.items)
                  .selectinload(PacketTask.task).selectinload(ClearanceTask.asset))) if token else None
+
+    if thread is not None and thread.packet is not None:
+        # The webhook is unauthenticated, so the tenant comes from the thread rather than
+        # from a caller. Set before the first write, so every audit row it causes is owned.
+        session.info["org_id"] = thread.packet.project_id and _org_of(session, thread)
 
     message = InboundMessage(
         thread_id=thread.id if thread else None, provider=normalized.provider,
@@ -289,6 +303,7 @@ def _read_reply(session: Session, message: InboundMessage, thread: MailThread, s
 
 @router.get("/api/projects/{project_id}/inbox", response_model=list[InboundOut])
 def inbox(project_id: str, limit: int = 100, session: Session = Depends(db)):
+    scoped_project(session, project_id)
     rows = session.scalars(
         select(InboundMessage)
         .join(MailThread, MailThread.id == InboundMessage.thread_id)
@@ -305,6 +320,7 @@ def inbox(project_id: str, limit: int = 100, session: Session = Depends(db)):
 @router.get("/api/projects/{project_id}/proposed-changes", response_model=list[ProposedChangeOut])
 def proposed_changes(project_id: str, status_filter: str = "pending", session: Session = Depends(db)):
     """The human-confirm queue. Blocked proposals are included — with their reason."""
+    scoped_project(session, project_id)
     stmt = (select(ProposedChange)
             .join(ClearanceTask, ClearanceTask.id == ProposedChange.task_id)
             .join(Asset, Asset.id == ClearanceTask.asset_id)
@@ -320,8 +336,9 @@ def _load_change(session: Session, change_id: str) -> ProposedChange:
     change = session.scalar(
         select(ProposedChange).where(ProposedChange.id == change_id)
         .options(selectinload(ProposedChange.task).selectinload(ClearanceTask.asset)))
-    if change is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Proposed change not found")
+    if change is None or change.task is None or change.task.asset is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, NOT_FOUND)
+    scoped(change.task.asset.project, session)
     return change
 
 
@@ -385,6 +402,7 @@ def reject_proposal(change_id: str, body: DecisionRequest, session: Session = De
 @router.get("/api/projects/{project_id}/ledger", response_model=LedgerOut)
 def cost_ledger(project_id: str, session: Session = Depends(db)):
     """Estimated vs quoted vs signed, per task, with the variance against the estimate."""
+    scoped_project(session, project_id)
     tasks = list(session.scalars(
         select(ClearanceTask).join(Asset, Asset.id == ClearanceTask.asset_id)
         .where(Asset.project_id == project_id)

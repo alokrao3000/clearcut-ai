@@ -46,8 +46,10 @@ import {
   useSendPacket,
   useUpdatePacket,
   useViewAccesses,
+  reportError,
 } from "@/hooks/use-clearcut";
 import { api } from "@/lib/api";
+import { downloadAuthed, openAuthed } from "@/lib/download";
 import { absoluteTime, moneyRange, relativeTime } from "@/lib/format";
 import {
   ACCESS_OUTCOME_LABEL,
@@ -261,27 +263,27 @@ function PacketBody({ projectId, packet }: { projectId: string; packet: Packet }
           </section>
 
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" asChild>
-              <a href={api.packetPreviewUrl(packet.id, true)} target="_blank" rel="noreferrer">
-                <Eye /> Preview letter
-              </a>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                openAuthed(api.packetPreviewUrl(packet.id, true))
+                  .catch((e) => reportError(e, "Could not open the preview"))
+              }
+            >
+              <Eye /> Preview letter
             </Button>
             <Button
               variant="outline"
               size="sm"
               disabled={!pdf?.available}
               title={pdf?.available ? undefined : (pdf?.install_hint ?? "")}
-              asChild={pdf?.available}
+              onClick={() =>
+                downloadAuthed(api.packetPdfUrl(packet.id))
+                  .catch((e) => reportError(e, "Could not produce the PDF"))
+              }
             >
-              {pdf?.available ? (
-                <a href={api.packetPdfUrl(packet.id)} target="_blank" rel="noreferrer">
-                  <FileDown /> Download PDF
-                </a>
-              ) : (
-                <span>
-                  <FileDown /> PDF unavailable
-                </span>
-              )}
+              <FileDown /> {pdf?.available ? "Download PDF" : "PDF unavailable"}
             </Button>
             {!frozen && (
               <Button

@@ -85,6 +85,26 @@ class Settings(BaseSettings):
     auto_apply_replies: bool = False
     auto_apply_min_confidence: float = 0.9
 
+    # Auth and tenancy (M6).
+    # Cost travels inside a bcrypt hash, so this can differ between a CI box and production
+    # without invalidating anything already stored.
+    bcrypt_rounds: int = 12
+    session_ttl_days: int = 14
+    # Self-serve signup creates a new organization and its owner. Turn it off to run a
+    # closed instance where an existing owner invites everyone.
+    allow_open_registration: bool = True
+    # CORS. The frontend sends a bearer token rather than a cookie, so this is defence in
+    # depth rather than the thing standing between a tenant and their data.
+    cors_origins: list[str] = ["http://localhost:3000"]
+
+    # Alembic owns the schema from M6. Migrating on boot is for a single-process dev
+    # box; several API processes starting together would race each other through DDL.
+    auto_migrate: bool = False
+
+    # Observability.
+    log_level: str = "INFO"
+    log_json: bool = False  # structured logs for a collector; plain text for a terminal
+
     # Thumbnail cache (MinIO locally, any S3-compatible store in production).
     thumbnail_cache_enabled: bool = False
     s3_endpoint_url: str = "http://localhost:9002"

@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.audit import Actor, set_actor
 from app.config import get_settings
-from app.deps import current_user_id, db, require_disclaimer
+from app.deps import NOT_FOUND, WRITE, current_user_id, db, scoped
 from app.enums import ActorType
 from app.models import AuditLog, ClearanceTask
 from app.presenters import task_out
@@ -12,13 +12,14 @@ from app.schemas import AuditOut, ContactResolutionOut, TaskOut, TaskUpdate, Tra
 from app.services import contacts, pipeline, workflow
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
-WRITE = [Depends(require_disclaimer)]
 
 
 def load_task(session: Session, task_id: str) -> ClearanceTask:
+    """Scoped through the asset's project; a task carries no org_id of its own."""
     task = session.get(ClearanceTask, task_id)
-    if task is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Task not found")
+    if task is None or task.asset is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, NOT_FOUND)
+    scoped(task.asset.project, session)
     return task
 
 

@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.audit import Actor, set_actor
 from app.config import get_settings
 from app.db import get_session
-from app.deps import current_user_id, db, require_disclaimer
+from app.deps import NOT_FOUND, WRITE, current_user_id, db, scoped, scoped_project
 from app.enums import ActorType, Stage
 from app.models import (Asset, ClearanceTask, ContextExcerpt, ContextView, ContextViewAccess,
                         OutreachPacket, PacketTask, Project, Rightsholder, Scene)
@@ -31,7 +31,6 @@ from app.services.mapping import effective_contact
 
 router = APIRouter(tags=["outreach"])
 public_router = APIRouter(tags=["context views"], include_in_schema=False)
-WRITE = [Depends(require_disclaimer)]
 
 NO_STORE = {"Cache-Control": "no-store, no-cache, must-revalidate, private", "Pragma": "no-cache"}
 
@@ -51,7 +50,8 @@ def _packet_query():
 def load_packet(session: Session, packet_id: str) -> OutreachPacket:
     packet = session.scalar(_packet_query().where(OutreachPacket.id == packet_id))
     if packet is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Packet not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, NOT_FOUND)
+    scoped(packet.project, session)
     return packet
 
 
@@ -159,8 +159,7 @@ def packet_groups(project_id: str, session: Session = Depends(db)):
     This is what the UI offers as "build these packets": the producer should not have to
     work out that two of their clips route to the same Warner intake.
     """
-    if session.get(Project, project_id) is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
+    scoped_project(session, project_id)
 
     existing: dict[str, list[str]] = {}
     for packet in session.scalars(select(OutreachPacket).where(OutreachPacket.project_id == project_id)):
@@ -186,9 +185,7 @@ def packet_groups(project_id: str, session: Session = Depends(db)):
              dependencies=WRITE)
 def create_packet(project_id: str, body: PacketCreate, session: Session = Depends(db),
                   user_id: str = Depends(current_user_id)):
-    project = session.get(Project, project_id)
-    if project is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
+    project = scoped_project(session, project_id)
 
     tasks = _load_tasks(session, project_id, body.task_ids)
     rightsholder_id = _single_intake(tasks)
@@ -218,6 +215,7 @@ def create_packet(project_id: str, body: PacketCreate, session: Session = Depend
 
 @router.get("/api/projects/{project_id}/packets", response_model=list[PacketOut])
 def list_packets(project_id: str, session: Session = Depends(db)):
+    scoped_project(session, project_id)
     rows = session.scalars(_packet_query().where(OutreachPacket.project_id == project_id)
                            .order_by(OutreachPacket.created_at.desc())).unique().all()
     return [packet_out(p) for p in rows]
@@ -397,7 +395,8 @@ def delete_excerpt(excerpt_id: str, session: Session = Depends(db),
                    user_id: str = Depends(current_user_id)):
     excerpt = session.get(ContextExcerpt, excerpt_id)
     if excerpt is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Excerpt not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, NOT_FOUND)
+    load_packet(session, excerpt.packet_id)
     set_actor(session, Actor(ActorType.user, user_id, "Withdrew shared excerpt"))
     session.delete(excerpt)
     session.commit()
@@ -439,7 +438,8 @@ def revoke_context_view(view_id: str, session: Session = Depends(db),
                         user_id: str = Depends(current_user_id)):
     view = session.get(ContextView, view_id)
     if view is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Context view not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, NOT_FOUND)
+    load_packet(session, view.packet_id)
     set_actor(session, Actor(ActorType.user, user_id, "Revoked context view"))
     context_views.revoke(view)
     session.commit()
@@ -448,8 +448,10 @@ def revoke_context_view(view_id: str, session: Session = Depends(db),
 
 @router.get("/api/context-views/{view_id}/accesses", response_model=list[AccessOut])
 def list_accesses(view_id: str, limit: int = 200, session: Session = Depends(db)):
-    if session.get(ContextView, view_id) is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Context view not found")
+    view = session.get(ContextView, view_id)
+    if view is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, NOT_FOUND)
+    load_packet(session, view.packet_id)  # scopes the view through its packet's project
     return session.scalars(
         select(ContextViewAccess).where(ContextViewAccess.view_id == view_id)
         .order_by(ContextViewAccess.at.desc()).limit(min(limit, 500))).all()
