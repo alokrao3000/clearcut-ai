@@ -69,6 +69,16 @@ class Stage(StrEnum):
     dropped = "dropped"
 
 
+class ReplyKind(StrEnum):
+    """What a rightsholder's reply amounts to, as read by the parser."""
+
+    approved = "approved"
+    denied = "denied"
+    quote = "quote"
+    needs_info = "needs_info"
+    unclear = "unclear"
+
+
 class RateUnit(StrEnum):
     per_minute = "per_minute"
     per_use = "per_use"
@@ -92,4 +102,17 @@ LAYER_KINDS: dict[Layer, set[RightsholderKind]] = {
     Layer.composition: {RightsholderKind.publisher, RightsholderKind.individual},
     Layer.performance: {RightsholderKind.individual},
     Layer.trademark: {RightsholderKind.brand, RightsholderKind.studio},
+}
+
+
+# Where each reading would take a task, if a human confirms it. `needs_info` and `unclear`
+# map to nothing on purpose: they are correspondence, not progress. `approved` targets
+# quote_received like `quote` does, because the workflow will not advance a task past
+# outreach without a figure — an approval with no fee named comes back blocked, saying so.
+REPLY_TARGET_STAGE: dict[ReplyKind, Stage | None] = {
+    ReplyKind.approved: Stage.quote_received,
+    ReplyKind.quote: Stage.quote_received,
+    ReplyKind.denied: Stage.denied,
+    ReplyKind.needs_info: None,
+    ReplyKind.unclear: None,
 }

@@ -384,3 +384,129 @@ export interface Scene {
   page_number: number | null;
   text: string;
 }
+
+// ------------------------------------------------------------ mail loop (M5)
+
+export interface OutboundMessage {
+  id: string;
+  thread_id: string;
+  to_email: string;
+  from_email: string;
+  reply_to: string;
+  subject: string;
+  provider: string;
+  provider_message_id: string | null;
+  status: "queued" | "sent" | "failed";
+  error: string | null;
+  /** Something the provider said about a successful send — the console provider admits it did not send. */
+  note: string | null;
+  sent_at: string | null;
+  sent_by: string;
+  created_at: string;
+}
+
+export const REPLY_KINDS = ["approved", "denied", "quote", "needs_info", "unclear"] as const;
+export type ReplyKind = (typeof REPLY_KINDS)[number];
+
+export type ProposalStatus = "pending" | "applied" | "rejected" | "superseded";
+
+export interface ProposedChange {
+  id: string;
+  intent_id: string;
+  task_id: string;
+  kind: ReplyKind;
+  from_stage: Stage;
+  to_stage: Stage | null;
+  quoted_amount: Decimalish | null;
+  currency: string | null;
+  /** The span of the reply this came from. A producer confirms against this, not a paraphrase. */
+  quote_text: string | null;
+  confidence: number;
+  note: string | null;
+  status: ProposalStatus;
+  blocked_reason: string | null;
+  decided_by: string | null;
+  decided_at: string | null;
+  created_at: string;
+  asset_title: string | null;
+  layer: Layer | null;
+}
+
+export interface ReplyIntent {
+  id: string;
+  inbound_id: string;
+  model: string;
+  kind: ReplyKind;
+  confidence: number;
+  summary: string;
+  reasoning: string | null;
+  created_at: string;
+  changes: ProposedChange[];
+}
+
+export interface InboundMessage {
+  id: string;
+  thread_id: string | null;
+  provider: string;
+  from_email: string;
+  from_name: string | null;
+  subject: string | null;
+  text_body: string;
+  status: "received" | "parsed" | "unroutable" | "failed";
+  error: string | null;
+  received_at: string;
+  intent: ReplyIntent | null;
+  packet_id: string | null;
+  rightsholder_name: string | null;
+}
+
+export interface MailThread {
+  id: string;
+  packet_id: string;
+  reply_to: string;
+  closed_at: string | null;
+  created_at: string;
+  outbound: OutboundMessage[];
+  inbound: InboundMessage[];
+}
+
+export interface LedgerLine {
+  task_id: string;
+  asset_id: string;
+  asset_title: string | null;
+  layer: Layer;
+  stage: Stage;
+  rightsholder_name: string | null;
+  estimate_low: Decimalish | null;
+  estimate_high: Decimalish | null;
+  quoted: Decimalish | null;
+  agreed: Decimalish | null;
+  /** The firmest figure available for this task right now. */
+  exposure: Decimalish;
+  basis: "agreed" | "quoted" | "estimate" | "none";
+  /** Firm figure minus the top of the estimate range; null until something firm exists. */
+  variance: Decimalish | null;
+  closed: boolean;
+}
+
+export interface LedgerTotals {
+  live_tasks: number;
+  closed_tasks: number;
+  estimate_low: Decimalish;
+  estimate_high: Decimalish;
+  quoted_total: Decimalish;
+  agreed_total: Decimalish;
+  exposure: Decimalish;
+  recommended_contingency: Decimalish;
+  committed: Decimalish;
+  awaiting_reply: number;
+  priced_tasks: number;
+  over_estimate_tasks: number;
+  variance_total: Decimalish;
+  worst_variance: Decimalish;
+}
+
+export interface Ledger {
+  lines: LedgerLine[];
+  totals: LedgerTotals;
+}

@@ -113,3 +113,36 @@ export const ACCESS_OUTCOME_LABEL: Record<string, string> = {
   expired: "Refused — expired",
   revoked: "Refused — revoked",
 };
+
+// ------------------------------------------------------------ mail loop (M5)
+
+export const REPLY_KIND_LABEL: Record<string, string> = {
+  approved: "Approved",
+  denied: "Denied",
+  quote: "Quote",
+  needs_info: "Needs info",
+  unclear: "Unclear",
+};
+
+export const REPLY_KIND_BADGE: Record<string, string> = {
+  approved: "bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200",
+  quote: "bg-teal-100 text-teal-900 dark:bg-teal-950 dark:text-teal-200",
+  denied: "bg-rose-100 text-rose-900 dark:bg-rose-950 dark:text-rose-200",
+  needs_info: "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200",
+  unclear: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400",
+};
+
+export const PROPOSAL_STATUS_LABEL: Record<string, string> = {
+  pending: "Awaiting confirmation",
+  applied: "Applied",
+  rejected: "Rejected",
+  superseded: "Superseded",
+};
+
+/** What the firmest number for a task currently rests on. */
+export const LEDGER_BASIS_LABEL: Record<string, string> = {
+  agreed: "Signed",
+  quoted: "Quoted",
+  estimate: "Estimated",
+  none: "—",
+};

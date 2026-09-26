@@ -26,6 +26,10 @@ AUDITED_TABLES = {
     # E&O review actually asks about. `context_view_accesses` is itself a log, so it is not
     # double-recorded here.
     "outreach_packets", "packet_tasks", "context_excerpts", "context_views",
+    # M5. What went out, what the model made of the answer, and who confirmed it. Inbound
+    # messages and mail threads are left out: an inbound row is itself the record of a reply,
+    # and a thread row would copy its plaintext reply-to token into the ledger.
+    "outbound_messages", "reply_intents", "proposed_changes",
 }
 # `token_hash` is the lookup key for a live context view; copying it into an append-only
 # ledger widens its blast radius for no audit value. The view's id already identifies it.

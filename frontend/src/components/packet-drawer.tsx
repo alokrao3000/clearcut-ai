@@ -2,12 +2,15 @@
 
 import * as React from "react";
 import {
+  AlertTriangle,
   Check,
   Copy,
   Eye,
   FileDown,
   Link2,
   Lock,
+  Mail,
+  MailCheck,
   ScrollText,
   Send,
   Trash2,
@@ -37,8 +40,10 @@ import {
   useFinalizePacket,
   useOutreachTemplates,
   usePacket,
+  usePacketThread,
   usePdfStatus,
   useRevokeContextView,
+  useSendPacket,
   useUpdatePacket,
   useViewAccesses,
 } from "@/hooks/use-clearcut";
@@ -299,6 +304,10 @@ function PacketBody({ projectId, packet }: { projectId: string; packet: Packet }
 
           <Separator />
 
+          <SendSection projectId={projectId} packet={packet} />
+
+          <Separator />
+
           <ExcerptSection projectId={projectId} packet={packet} />
 
           <Separator />
@@ -326,6 +335,102 @@ function Field({
     </div>
   );
 }
+
+// ---------------------------------------------------------------------- send
+
+function SendSection({ projectId, packet }: { projectId: string; packet: Packet }) {
+  const send = useSendPacket(projectId);
+  const frozen = packet.status === "finalized";
+  const { data: thread } = usePacketThread(packet.id, frozen);
+  const sent = thread?.outbound ?? [];
+
+  return (
+    <section className="flex flex-col gap-3">
+      <div>
+        <h3 className="text-sm font-semibold">Send</h3>
+        <p className="text-xs text-muted-foreground">
+          The frozen letter is what goes out, and replies come back to a per-packet address, so an
+          answer lands against this request without the recipient quoting anything.
+        </p>
+      </div>
+
+      {!frozen ? (
+        <p className="text-sm text-muted-foreground">
+          Finalize the letter first — sending a draft would let what was sent and what was recorded
+          drift apart.
+        </p>
+      ) : (
+        <>
+          {sent.length > 0 && (
+            <ul className="flex flex-col gap-2">
+              {sent.map((message) => (
+                <li
+                  key={message.id}
+                  className="flex items-start gap-3 rounded-lg border border-border p-3 text-sm"
+                >
+                  <MailCheck className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                  <div className="min-w-0">
+                    <p className="truncate">
+                      {message.to_email}
+                      <span className="ml-2 text-xs text-muted-foreground">
+                        {message.sent_at ? relativeTime(message.sent_at) : message.status}
+                      </span>
+                    </p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      Replies to <code className="font-mono">{message.reply_to}</code>
+                    </p>
+                    {message.note && (
+                      <p className="mt-1 flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-400">
+                        <AlertTriangle className="mt-0.5 size-3 shrink-0" />
+                        {message.note}
+                      </p>
+                    )}
+                    {message.error && (
+                      <p className="mt-1 text-xs text-rose-700 dark:text-rose-400">{message.error}</p>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              variant={sent.length > 0 ? "outline" : "default"}
+              disabled={send.isPending}
+              onClick={() =>
+                send.mutate(
+                  { packetId: packet.id, allowUnverified: false },
+                  { onSuccess: () => toast.success("Sent — the reply thread is open") },
+                )
+              }
+            >
+              <Mail /> {sent.length > 0 ? "Send again" : "Send letter"}
+            </Button>
+            {packet.contact.is_placeholder && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-muted-foreground"
+                disabled={send.isPending}
+                onClick={() =>
+                  send.mutate(
+                    { packetId: packet.id, allowUnverified: true },
+                    { onSuccess: () => toast.success("Sent to the unverified address") },
+                  )
+                }
+              >
+                Send anyway (unverified contact)
+              </Button>
+            )}
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
 
 // ------------------------------------------------------------------ excerpts
 

@@ -488,3 +488,149 @@ class PacketFinalize(BaseModel):
     transition_tasks: bool = Field(default=True,
                                    description="Move eligible tasks to 'outreach sent'")
     reason: str | None = None
+
+
+# ---------------------------------------------------------------- mail loop (M5)
+
+class SendRequest(BaseModel):
+    """Sending is refused to unverified or reserved-domain contacts unless overridden."""
+
+    allow_unverified: bool = Field(
+        default=False,
+        description="Send even though the directory marks this contact as unverified placeholder data")
+    reason: str | None = None
+
+
+class OutboundOut(ORM):
+    id: str
+    thread_id: str
+    to_email: str
+    from_email: str
+    reply_to: str
+    subject: str
+    provider: str
+    provider_message_id: str | None
+    status: str
+    error: str | None
+    note: str | None
+    sent_at: datetime | None
+    sent_by: str
+    created_at: datetime
+
+
+class ProposedChangeOut(ORM):
+    id: str
+    intent_id: str
+    task_id: str
+    kind: str
+    from_stage: Stage
+    to_stage: Stage | None
+    quoted_amount: Decimal | None
+    currency: str | None
+    quote_text: str | None
+    confidence: float
+    note: str | None
+    status: str
+    blocked_reason: str | None
+    decided_by: str | None
+    decided_at: datetime | None
+    created_at: datetime
+    # Filled by the presenter so the queue reads without a second round trip.
+    asset_title: str | None = None
+    layer: Layer | None = None
+
+
+class ReplyIntentOut(ORM):
+    id: str
+    inbound_id: str
+    model: str
+    kind: str
+    confidence: float
+    summary: str
+    reasoning: str | None
+    created_at: datetime
+    changes: list[ProposedChangeOut] = []
+
+
+class InboundOut(ORM):
+    id: str
+    thread_id: str | None
+    provider: str
+    from_email: str
+    from_name: str | None
+    subject: str | None
+    text_body: str
+    status: str
+    error: str | None
+    received_at: datetime
+    intent: ReplyIntentOut | None = None
+    packet_id: str | None = None
+    rightsholder_name: str | None = None
+
+
+class ThreadOut(ORM):
+    id: str
+    packet_id: str
+    reply_to: str
+    closed_at: datetime | None
+    created_at: datetime
+    outbound: list[OutboundOut] = []
+    inbound: list[InboundOut] = []
+
+
+class DecisionRequest(BaseModel):
+    reason: str | None = Field(default=None, description="Recorded in the audit log")
+
+
+class ApplyRequest(DecisionRequest):
+    """Confirming a proposal. The amount may be corrected at the moment of confirmation."""
+
+    quoted_amount: Decimal | None = Field(
+        default=None, ge=0, description="Overrides the parsed figure before it is applied")
+
+
+class InboundAck(BaseModel):
+    """What the webhook returns. Deliberately terse — the provider is not a user."""
+
+    status: str
+    inbound_id: str | None = None
+    proposals: int = 0
+
+
+class LedgerLineOut(BaseModel):
+    task_id: str
+    asset_id: str
+    asset_title: str | None
+    layer: Layer
+    stage: Stage
+    rightsholder_name: str | None
+    estimate_low: Decimal | None
+    estimate_high: Decimal | None
+    quoted: Decimal | None
+    agreed: Decimal | None
+    exposure: Decimal
+    basis: str = Field(description="agreed | quoted | estimate | none")
+    variance: Decimal | None = Field(description="Firm figure minus the top of the estimate range")
+    closed: bool
+
+
+class LedgerTotals(BaseModel):
+    live_tasks: int
+    closed_tasks: int
+    estimate_low: Decimal
+    estimate_high: Decimal
+    quoted_total: Decimal
+    agreed_total: Decimal
+    exposure: Decimal
+    recommended_contingency: Decimal
+    committed: Decimal
+    awaiting_reply: int
+    priced_tasks: int
+    over_estimate_tasks: int
+    variance_total: Decimal
+    worst_variance: Decimal
+
+
+class LedgerOut(BaseModel):
+    lines: list[LedgerLineOut]
+    totals: LedgerTotals

@@ -70,10 +70,27 @@
 - WeasyPrint's native stack is probed once and degrades to a 503 with install instructions rather
   than failing the request; the HTML letter never depends on it.
 
-### M5 — Mail loop + cost ledger
-- Outbound email with per-task reply-to tokens.
-- Inbound webhook → Claude intent parser (approved / denied / quote / needs-info) → proposed transition. **Human confirms** before stage changes, because a misparsed quote is a real financial error. Auto-apply only above a confidence threshold, if the user opts in.
-- Project cost ledger: estimated vs quoted vs signed.
+### M5 — Mail loop + cost ledger — **done**
+- Outbound email behind a provider seam (Postmark, SendGrid, and a `console` default that
+  records the send without touching the network). Sending is refused to reserved `.example`
+  domains and to unverified placeholder contacts unless explicitly overridden, so a dev box
+  cannot mail a real licensing desk by accident.
+- **Reply-to tokens are per packet, not per task** — a deviation from the original line above,
+  and a consequence of M4: a packet is what gets sent, so a reply belongs to the letter rather
+  than to one of the items in it. The parser attributes outcomes to individual tasks. The token
+  is stored in plaintext because it rides in the headers of every message we send; the webhook
+  signature, not the token, is the trust boundary.
+- Inbound webhook → Claude intent parser (approved / denied / quote / needs-info / unclear) →
+  proposed transition. **Human confirms** before stage changes. Every proposal carries the
+  verbatim span of the reply it came from, and is pre-checked against the workflow guards so the
+  queue shows what is actually actionable rather than offering a button that will fail.
+- Auto-apply is opt-in and threshold-gated, and **never applies a proposal carrying an amount**.
+  A wrong stage is visible on the board; a wrong fee becomes a number in a budget.
+- Storing a reply comes before reading it: an unavailable or crashing parser costs the reading,
+  never the message. Unroutable replies are kept, and the webhook answers identically either way
+  so it cannot be used to discover which tokens are live.
+- Project cost ledger: estimated vs quoted vs signed per task, with variance against the top of
+  the estimate range and contingency applied only to the part still being guessed.
 
 ### M6 — Hardening
 - Auth (org / user / roles), multi-tenancy, Alembic migrations, Postgres audit trigger, E&O audit export (CSV/PDF), observability, deployment.

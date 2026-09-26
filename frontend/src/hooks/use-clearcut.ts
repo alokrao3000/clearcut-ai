@@ -31,6 +31,10 @@ export const keys = {
   accesses: (viewId: string) => ["view-accesses", viewId] as const,
   scripts: (id: string) => ["scripts", id] as const,
   scenes: (scriptId: string) => ["scenes", scriptId] as const,
+  thread: (packetId: string) => ["thread", packetId] as const,
+  inbox: (id: string) => ["inbox", id] as const,
+  proposals: (id: string, status: string) => ["proposals", id, status] as const,
+  ledger: (id: string) => ["ledger", id] as const,
 };
 
 /** Any write can touch tasks, the board and the budget, so refresh the project view as a unit.
@@ -42,6 +46,7 @@ function invalidateProject(qc: QueryClient, projectId: string) {
     qc.invalidateQueries({ queryKey: keys.board(projectId) }),
     qc.invalidateQueries({ queryKey: keys.budget(projectId) }),
     qc.invalidateQueries({ queryKey: keys.packetGroups(projectId) }),
+    qc.invalidateQueries({ queryKey: keys.ledger(projectId) }),
   ]);
 }
 
@@ -461,5 +466,81 @@ export function useRevokeContextView(projectId: string) {
       api.revokeContextView(viewId),
     onSuccess: (_view, { packetId }) => invalidatePackets(qc, projectId, packetId),
     onError: (e) => reportError(e, "Could not revoke the link"),
+  });
+}
+
+// ---------------------------------------------------------------- mail loop (M5)
+
+export function usePacketThread(packetId: string | null, enabled = true) {
+  return useQuery({
+    queryKey: keys.thread(packetId ?? ""),
+    queryFn: () => api.packetThread(packetId!),
+    enabled: Boolean(packetId) && enabled,
+    // A thread that does not exist yet is a 404, not an error worth retrying.
+    retry: false,
+  });
+}
+
+export function useInbox(projectId: string) {
+  return useQuery({ queryKey: keys.inbox(projectId), queryFn: () => api.inbox(projectId) });
+}
+
+export function useProposals(projectId: string, status = "pending") {
+  return useQuery({
+    queryKey: keys.proposals(projectId, status),
+    queryFn: () => api.proposedChanges(projectId, status),
+  });
+}
+
+export function useLedger(projectId: string) {
+  return useQuery({ queryKey: keys.ledger(projectId), queryFn: () => api.ledger(projectId) });
+}
+
+/** A reply decision moves a task, so the whole project view and the queues refresh together. */
+function invalidateReplies(qc: QueryClient, projectId: string) {
+  return Promise.all([
+    invalidateProject(qc, projectId),
+    qc.invalidateQueries({ queryKey: keys.inbox(projectId) }),
+    qc.invalidateQueries({ queryKey: ["proposals", projectId] }),
+  ]);
+}
+
+export function useSendPacket(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ packetId, allowUnverified }: { packetId: string; allowUnverified: boolean }) =>
+      api.sendPacket(packetId, allowUnverified),
+    onSuccess: async (_message, { packetId }) => {
+      await qc.invalidateQueries({ queryKey: keys.packets(projectId) });
+      await qc.invalidateQueries({ queryKey: keys.packet(packetId) });
+      await qc.invalidateQueries({ queryKey: keys.thread(packetId) });
+    },
+    onError: (e) => reportError(e, "Could not send the packet"),
+  });
+}
+
+export function useApplyProposal(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      quotedAmount,
+      reason,
+    }: {
+      id: string;
+      quotedAmount?: string | null;
+      reason?: string;
+    }) => api.applyProposal(id, { quoted_amount: quotedAmount ?? null, reason: reason ?? null }),
+    onSuccess: () => invalidateReplies(qc, projectId),
+    onError: (e) => reportError(e, "Could not apply that change"),
+  });
+}
+
+export function useRejectProposal(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason?: string }) => api.rejectProposal(id, reason),
+    onSuccess: () => invalidateReplies(qc, projectId),
+    onError: (e) => reportError(e, "Could not reject that change"),
   });
 }

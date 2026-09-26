@@ -221,6 +221,8 @@ class OutreachPacket(Base):
                                                             cascade="all, delete-orphan")
     context_views: Mapped[list["ContextView"]] = relationship(back_populates="packet",
                                                               cascade="all, delete-orphan")
+    thread: Mapped["MailThread | None"] = relationship(back_populates="packet",
+                                                       cascade="all, delete-orphan", uselist=False)
 
 
 class PacketTask(Base):
@@ -306,6 +308,146 @@ class ContextViewAccess(Base):
     referer: Mapped[str | None] = mapped_column(Text)
 
     view: Mapped[ContextView] = relationship(back_populates="accesses")
+
+
+class MailThread(Base):
+    """The reply-to identity for one packet's correspondence.
+
+    One thread per packet, because a packet is what gets sent: the recipient replies to the
+    letter, not to an individual clearance task. Which tasks a reply is *about* is worked out
+    by the parser, not by the address.
+
+    The token is stored in plaintext, unlike a context-view token. It travels in the Reply-To
+    header of every message, through the recipient's mail client, their archive and any
+    forward, so treating it as a secret would be theatre. It is high-entropy so threads cannot
+    be enumerated, and the real trust boundary is the provider's webhook signature.
+    """
+
+    __tablename__ = "mail_threads"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    packet_id: Mapped[str] = mapped_column(ForeignKey("outreach_packets.id", ondelete="CASCADE"),
+                                           unique=True, index=True)
+    token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    packet: Mapped["OutreachPacket"] = relationship(back_populates="thread")
+    outbound: Mapped[list["OutboundMessage"]] = relationship(
+        back_populates="thread", cascade="all, delete-orphan", order_by="OutboundMessage.created_at")
+    inbound: Mapped[list["InboundMessage"]] = relationship(
+        back_populates="thread", cascade="all, delete-orphan", order_by="InboundMessage.received_at")
+
+
+class OutboundMessage(Base):
+    """One email we sent. The body is frozen here, the way the packet freezes its letter."""
+
+    __tablename__ = "outbound_messages"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    thread_id: Mapped[str] = mapped_column(ForeignKey("mail_threads.id", ondelete="CASCADE"), index=True)
+    to_email: Mapped[str] = mapped_column(String(300))
+    from_email: Mapped[str] = mapped_column(String(300))
+    reply_to: Mapped[str] = mapped_column(String(300))
+    subject: Mapped[str] = mapped_column(Text)
+    body_html: Mapped[str] = mapped_column(Text)
+    body_text: Mapped[str] = mapped_column(Text)
+    provider: Mapped[str] = mapped_column(String(40))
+    provider_message_id: Mapped[str | None] = mapped_column(String(200))
+    status: Mapped[str] = mapped_column(ENUM, default="queued")  # queued|sent|failed
+    error: Mapped[str | None] = mapped_column(Text)
+    # Something the provider wants to say about a *successful* send — the console provider
+    # uses it to admit it did not really send. Kept apart from `error` so a row that reads
+    # as sent is not carrying text in a field that means failure.
+    note: Mapped[str | None] = mapped_column(Text)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    sent_by: Mapped[str] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    thread: Mapped[MailThread] = relationship(back_populates="outbound")
+
+
+class InboundMessage(Base):
+    """A reply, stored verbatim before anything tries to interpret it.
+
+    `provider_message_id` is unique per provider so a webhook retry cannot create a second
+    reading of the same reply — delivery is at-least-once everywhere.
+    """
+
+    __tablename__ = "inbound_messages"
+    __table_args__ = (UniqueConstraint("provider", "provider_message_id"),)
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    thread_id: Mapped[str | None] = mapped_column(ForeignKey("mail_threads.id", ondelete="CASCADE"),
+                                                  index=True)
+    provider: Mapped[str] = mapped_column(String(40))
+    provider_message_id: Mapped[str] = mapped_column(String(200))
+    from_email: Mapped[str] = mapped_column(String(300))
+    from_name: Mapped[str | None] = mapped_column(String(300))
+    to_email: Mapped[str | None] = mapped_column(String(300))
+    subject: Mapped[str | None] = mapped_column(Text)
+    text_body: Mapped[str] = mapped_column(Text)
+    # Unroutable messages are kept rather than dropped: a reply that arrived and went nowhere
+    # is exactly the thing a producer needs to be able to find.
+    status: Mapped[str] = mapped_column(ENUM, default="received")  # received|parsed|unroutable|failed
+    error: Mapped[str | None] = mapped_column(Text)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+    thread: Mapped["MailThread | None"] = relationship(back_populates="inbound")
+    intent: Mapped["ReplyIntent | None"] = relationship(back_populates="inbound",
+                                                        cascade="all, delete-orphan", uselist=False)
+
+
+class ReplyIntent(Base):
+    """What the parser thinks a reply says. Advisory: it never moves a task by itself."""
+
+    __tablename__ = "reply_intents"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    inbound_id: Mapped[str] = mapped_column(ForeignKey("inbound_messages.id", ondelete="CASCADE"),
+                                            unique=True, index=True)
+    model: Mapped[str] = mapped_column(String(80))
+    kind: Mapped[str] = mapped_column(ENUM)  # approved|denied|quote|needs_info|unclear
+    confidence: Mapped[float] = mapped_column(Float, default=0.0)
+    summary: Mapped[str] = mapped_column(Text)
+    reasoning: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    inbound: Mapped[InboundMessage] = relationship(back_populates="intent")
+    changes: Mapped[list["ProposedChange"]] = relationship(back_populates="intent",
+                                                            cascade="all, delete-orphan")
+
+
+class ProposedChange(Base):
+    """A change a human is asked to confirm before it touches a clearance task.
+
+    Every proposal carries `quote_text`, the span of the reply it came from, so a producer
+    confirms against the rightsholder's own words rather than the model's paraphrase.
+    """
+
+    __tablename__ = "proposed_changes"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    intent_id: Mapped[str] = mapped_column(ForeignKey("reply_intents.id", ondelete="CASCADE"), index=True)
+    task_id: Mapped[str] = mapped_column(ForeignKey("clearance_tasks.id", ondelete="CASCADE"), index=True)
+
+    kind: Mapped[str] = mapped_column(ENUM)  # approved|denied|quote|needs_info|unclear
+    from_stage: Mapped[str] = mapped_column(ENUM)
+    to_stage: Mapped[str | None] = mapped_column(ENUM)
+    quoted_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    currency: Mapped[str | None] = mapped_column(String(8))
+    quote_text: Mapped[str | None] = mapped_column(Text)
+    confidence: Mapped[float] = mapped_column(Float, default=0.0)
+    note: Mapped[str | None] = mapped_column(Text)
+
+    status: Mapped[str] = mapped_column(ENUM, default="pending")  # pending|applied|rejected|superseded
+    blocked_reason: Mapped[str | None] = mapped_column(Text)  # why it could not be applied as proposed
+    decided_by: Mapped[str | None] = mapped_column(String(200))
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    intent: Mapped[ReplyIntent] = relationship(back_populates="changes")
+    task: Mapped[ClearanceTask] = relationship()
 
 
 class Rightsholder(Base):

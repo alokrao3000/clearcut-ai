@@ -57,6 +57,34 @@ class Settings(BaseSettings):
     excerpt_image_width: int = 820
     excerpt_max_chars: int = 4000
 
+    # Mail loop (M5).
+    # `console` logs the message and stores it as sent without touching the network, which is
+    # what a dev box and the test suite want. A real provider needs its key set.
+    mail_provider: str = "console"  # console | postmark | sendgrid
+    postmark_server_token: str | None = None
+    sendgrid_api_key: str | None = None
+    mail_from: str = "clearances@example.com"
+    mail_from_name: str = "Clearances"
+    # Replies come back to an address carrying the thread token, so an answer lands against
+    # the right packet without the recipient having to quote anything.
+    inbound_domain: str = "inbound.example.com"
+    inbound_mailbox: str = "reply"
+    # The provider signs its webhook; that signature, not the reply-to token, is what makes an
+    # inbound message trustworthy. Unset means signature checks are skipped, which is only safe
+    # on a machine the webhook cannot reach from outside.
+    inbound_webhook_secret: str | None = None
+    # The seed directory deliberately uses .example addresses. Refusing reserved TLDs by default
+    # means a dev box cannot email a real licensing desk by accident.
+    allow_reserved_tld_recipients: bool = False
+
+    # Reply understanding. Without credentials the mail loop still records replies; it just
+    # stops proposing changes, which is the safe direction to fail in.
+    reply_parser_model: str = "claude-opus-5"
+    # Human confirmation is the default because a misparsed quote is a real financial error.
+    # Auto-apply is opt-in, threshold-gated, and never applies a change that carries money.
+    auto_apply_replies: bool = False
+    auto_apply_min_confidence: float = 0.9
+
     # Thumbnail cache (MinIO locally, any S3-compatible store in production).
     thumbnail_cache_enabled: bool = False
     s3_endpoint_url: str = "http://localhost:9002"

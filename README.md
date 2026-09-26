@@ -4,8 +4,8 @@ Pre-production asset sourcing and clearance workflow for film and media.
 See [BUILD_PLAN.md](BUILD_PLAN.md) for architecture decisions and milestones.
 
 **Status: M1 (core domain + API), M2 (frontend), M3 (script ingestion + workers), M3.5 (contact
-resolution) and M4 (outreach packets + secure context views) complete.**
-The mail loop and cost ledger are M5.
+resolution), M4 (outreach packets + secure context views) and M5 (mail loop + cost ledger)
+complete.** Auth, multi-tenancy and migrations are M6.
 
 ## Run
 
@@ -79,6 +79,10 @@ The directory and rate cards in `backend/app/seed.py` are **unverified placehold
 | Packets | `GET/PATCH/DELETE /api/packets/{id}`, `GET .../preview`, `GET .../pdf`, `POST .../finalize`, `POST .../excerpts`, `DELETE /api/excerpts/{id}` |
 | Context views | `GET/POST /api/packets/{id}/context-views`, `POST /api/context-views/{id}/revoke`, `GET .../accesses` |
 | Public (no auth) | `GET /view/{token}`, `GET /view/{token}/excerpt/{id}.png` |
+| Mail | `POST /api/packets/{id}/send`, `GET /api/packets/{id}/thread`, `GET /api/projects/{id}/inbox` |
+| Replies | `GET /api/projects/{id}/proposed-changes`, `POST /api/proposed-changes/{id}/apply`, `POST .../reject` |
+| Ledger | `GET /api/projects/{id}/ledger` |
+| Webhook (signed) | `POST /api/mail/inbound` |
 
 ## Frontend
 
@@ -93,6 +97,8 @@ datagrid, dnd-kit for the board, TanStack Query for server state.
 | `/projects/{id}/board` | Kanban; drag a card to request a transition (keyboard: space, arrows, space) |
 | `/projects/{id}/budget` | Estimates grouped by layer with totals and contingency |
 | `/projects/{id}/outreach` | Tasks bundled by licensing desk, letter drafting, excerpt sharing, context links and their access logs |
+| `/projects/{id}/replies` | Inbox of replies and the confirm-or-reject queue, each proposal quoting the reply it came from |
+| `/projects/{id}/ledger` | Estimated vs quoted vs signed per task, with variance against the estimate |
 
 Clicking any task opens a drawer with the allowed transitions, the rightsholder picker (filtered to the
 kinds that can own that layer), the matcher's candidates and scores, the estimate breakdown, quote and
@@ -239,3 +245,61 @@ reports the state and the frontend disables the download button and shows the hi
 On Windows, install the [GTK3 runtime](https://github.com/tschoonj/GTK-for-Windows-Runtime-Environment-Installer/releases)
 and restart the API. On Debian/Ubuntu, `apt-get install libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz0b libffi-dev`.
 On macOS, `brew install pango`.
+
+## Mail loop and cost ledger (M5)
+
+Sending a finalized packet opens a **thread**: one per packet, because a packet is what gets
+mailed. Replies come back to `reply+<token>@<inbound-domain>`, and the parser works out which of
+the packet's items each reply actually speaks to.
+
+That token is stored in plaintext, unlike a context-view token. It travels in the Reply-To header
+of every message we send, through the recipient's mail client and any forward, so treating it as a
+secret would be theatre. It is high-entropy so threads cannot be enumerated, and the webhook
+signature — not the token — is what makes an inbound message trustworthy.
+
+### Guards on sending
+
+This is the first part of the system that can reach a real person, and the seed directory is full
+of plausible-looking but unverified addresses, so:
+
+- The default provider is `console`: it records the send and touches no network.
+- Reserved documentation domains (`.example`, `.invalid`, `.test`) are refused unless
+  `CLEARCUT_ALLOW_RESERVED_TLD_RECIPIENTS=true`.
+- A contact the directory marks as unverified placeholder data needs `allow_unverified=true`.
+- Only a finalized packet can be sent — the frozen letter is what goes out, so what was sent and
+  what was recorded cannot drift apart.
+
+### Reading a reply
+
+Storing comes first, reading second. A reply that arrived survives an unavailable parser, a
+crashing one, and an unroutable address; all it loses is the reading. The webhook is idempotent on
+the provider's message id, and an unroutable reply and a routed one both return the same 200, so
+it cannot be used to discover which tokens are live.
+
+Every reading becomes a **proposed change** that a human confirms:
+
+- It quotes the reply verbatim, so a producer confirms against the rightsholder's own words.
+- It is pre-checked against the workflow guards, so a proposal that cannot be applied is shown
+  with the reason rather than as a button that will fail.
+- The parsed figure can be corrected at the moment of confirmation.
+- Applying one proposal supersedes the others pending on that task, which are now reading a
+  stale stage.
+
+Auto-apply (`CLEARCUT_AUTO_APPLY_REPLIES`, off by default) is threshold-gated and **never applies
+a proposal carrying an amount**. A wrong stage is something a producer spots on the board; a wrong
+fee is a number that ends up in a budget.
+
+The audit ledger keeps the two apart: the reading is written as actor `llm`, and the task only
+moves under a named user with a reason pointing back at the reading.
+
+### Cost ledger
+
+`GET /api/projects/{id}/ledger` reports estimated, quoted and signed side by side per task, plus:
+
+- **exposure** — the firmest figure available for each task, signed over quoted over estimated;
+- **variance** against the *top* of the estimate range, because that is the number a producer
+  planned against;
+- **contingency** applied only to the tasks still being guessed, since holding 15% on top of a
+  real quote is double counting;
+- closed tasks reported but excluded from totals — a denied item with a quote on it is part of how
+  a project got where it is.

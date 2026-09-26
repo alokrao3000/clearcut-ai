@@ -10,13 +10,18 @@ import type {
   ContextViewCreated,
   Disclaimer,
   Excerpt,
+  InboundMessage,
   IngestResult,
   Layer,
+  Ledger,
+  MailThread,
+  OutboundMessage,
   OutreachTemplate,
   Packet,
   PacketGroup,
   PdfStatus,
   Project,
+  ProposedChange,
   Rightsholder,
   RightsholderKind,
   Scene,
@@ -275,4 +280,27 @@ export const api = {
   listScripts: (projectId: string) =>
     request<ScriptDocument[]>(`/api/projects/${projectId}/scripts`),
   listScenes: (scriptId: string) => request<Scene[]>(`/api/scripts/${scriptId}/scenes`),
+
+  // ---------------------------------------------------------- mail loop (M5)
+  sendPacket: (packetId: string, allowUnverified = false) =>
+    request<OutboundMessage>(`/api/packets/${packetId}/send`, {
+      method: "POST",
+      json: { allow_unverified: allowUnverified },
+    }),
+  packetThread: (packetId: string) => request<MailThread>(`/api/packets/${packetId}/thread`),
+
+  inbox: (projectId: string) => request<InboundMessage[]>(`/api/projects/${projectId}/inbox`),
+  proposedChanges: (projectId: string, statusFilter = "pending") =>
+    request<ProposedChange[]>(
+      `/api/projects/${projectId}/proposed-changes${qs({ status_filter: statusFilter })}`,
+    ),
+  applyProposal: (id: string, body: { quoted_amount?: string | null; reason?: string | null } = {}) =>
+    request<ProposedChange>(`/api/proposed-changes/${id}/apply`, { method: "POST", json: body }),
+  rejectProposal: (id: string, reason?: string) =>
+    request<ProposedChange>(`/api/proposed-changes/${id}/reject`, {
+      method: "POST",
+      json: { reason: reason ?? null },
+    }),
+
+  ledger: (projectId: string) => request<Ledger>(`/api/projects/${projectId}/ledger`),
 };
