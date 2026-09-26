@@ -130,7 +130,73 @@ export interface Task {
   agreed_amount: Decimalish | null;
   notes: string | null;
   allowed_transitions: Stage[];
+  recommended_contact: RecommendedContact | null;
   updated_at: string;
+}
+
+export interface ReliabilityComponent {
+  weight: number;
+  score: number;
+  note: string;
+}
+
+export interface ReliabilityBreakdown {
+  components?: Record<string, ReliabilityComponent>;
+  formula?: string;
+  cost_advantage?: number;
+}
+
+export interface OwnershipEvidence {
+  name: string;
+  claim_type: string;
+  layers: Layer[];
+  strength: number;
+  source_field: string;
+  excerpt: string;
+}
+
+export interface ContactOption {
+  rightsholder_id: string;
+  name: string;
+  kind: RightsholderKind;
+  identity: number;
+  reliability: number;
+  cost_low: Decimalish | null;
+  cost_high: Decimalish | null;
+  overall: number;
+  contact: Contact;
+  reliability_breakdown: ReliabilityBreakdown;
+  evidence: OwnershipEvidence[];
+  reasons: string[];
+  blockers: string[];
+}
+
+export interface RecommendedContact extends ContactOption {
+  why?: string[];
+  cheaper_alternative?: {
+    rightsholder_id: string;
+    name: string;
+    cost_low: Decimalish | null;
+    cost_high: Decimalish | null;
+    reliability: number;
+  } | null;
+}
+
+export interface ResearchLead {
+  source: string;
+  label: string;
+  url: string;
+  why: string;
+  /** True when we hold credentials to query the source directly rather than by hand. */
+  automatable: boolean;
+}
+
+export interface ContactResolution {
+  task_id: string;
+  layer: Layer;
+  recommended: RecommendedContact | null;
+  options: ContactOption[];
+  research_leads: ResearchLead[];
 }
 
 export interface Asset {
@@ -193,4 +259,128 @@ export interface AuditEntry {
   actor_id: string;
   reason: string | null;
   at: string;
+}
+
+// ------------------------------------------------------------ outreach (M4)
+
+export interface OutreachTemplate {
+  name: string;
+  description: string;
+}
+
+/** Whether the host can render PDFs. The HTML letter works either way. */
+export interface PdfStatus {
+  available: boolean;
+  version: string | null;
+  error: string | null;
+  install_hint: string | null;
+}
+
+/** Outreach-ready tasks bundled by the licensing desk that would receive the letter. */
+export interface PacketGroup {
+  rightsholder_id: string;
+  name: string;
+  kind: RightsholderKind;
+  licensing_email: string | null;
+  is_placeholder: boolean;
+  suggested_template: string;
+  task_ids: string[];
+  layers: Layer[];
+  asset_titles: string[];
+  existing_packet_ids: string[];
+}
+
+export interface PacketItem {
+  task_id: string;
+  asset_id: string;
+  asset_title: string | null;
+  layer: Layer;
+  stage: Stage;
+  estimate_low: Decimalish | null;
+  estimate_high: Decimalish | null;
+}
+
+export interface Excerpt {
+  id: string;
+  packet_id: string;
+  scene_id: string | null;
+  label: string;
+  text: string;
+  created_at: string;
+}
+
+export type ContextViewStatus = "active" | "expired" | "revoked";
+
+export interface ContextView {
+  id: string;
+  packet_id: string;
+  recipient_name: string;
+  recipient_email: string | null;
+  token_hint: string;
+  status: ContextViewStatus;
+  expires_at: string;
+  revoked_at: string | null;
+  created_by: string;
+  created_at: string;
+  access_count: number;
+  last_accessed_at: string | null;
+}
+
+/** Only ever returned by the create call — the token is not retrievable afterwards. */
+export interface ContextViewCreated extends ContextView {
+  url: string;
+  token: string;
+}
+
+export interface ContextViewAccess {
+  id: number;
+  view_id: string;
+  at: string;
+  outcome: "ok" | "expired" | "revoked";
+  path: string;
+  client_ip: string | null;
+  user_agent: string | null;
+  referer: string | null;
+}
+
+export interface Packet {
+  id: string;
+  project_id: string;
+  rightsholder: RightsholderBrief;
+  contact: Contact;
+  template: string;
+  status: "draft" | "finalized";
+  recipient_name: string | null;
+  recipient_email: string | null;
+  sender_name: string | null;
+  sender_email: string | null;
+  sender_title: string | null;
+  subject: string | null;
+  intro_note: string | null;
+  finalized_at: string | null;
+  created_at: string;
+  updated_at: string;
+  items: PacketItem[];
+  excerpts: Excerpt[];
+  context_views: ContextView[];
+}
+
+// Minimal script reads, needed only so a producer can pick an excerpt to share.
+// The full script UI belongs to M3's frontend work.
+export interface ScriptDocument {
+  id: string;
+  project_id: string;
+  filename: string;
+  media_type: string;
+  scene_count: number;
+  status: string;
+  created_at: string;
+}
+
+export interface Scene {
+  id: string;
+  index: number;
+  heading: string;
+  page_number: number | null;
+  text: string;
 }

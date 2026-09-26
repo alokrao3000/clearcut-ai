@@ -120,6 +120,8 @@ class TaskOut(ORM):
     agreed_amount: Decimal | None
     notes: str | None
     allowed_transitions: list[Stage] = []
+    # Who to approach, decided by the resolver. Full ranking at GET /api/tasks/{id}/contacts.
+    recommended_contact: dict | None = None
     updated_at: datetime
 
 
@@ -296,3 +298,193 @@ class JobOut(ORM):
     enqueued_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
+
+
+# ---------------------------------------------------------------- contact resolution
+
+class ContactOptionOut(BaseModel):
+    rightsholder_id: str
+    name: str
+    kind: RightsholderKind
+    identity: float = Field(description="Confidence this party can actually grant the right")
+    reliability: float = Field(description="How likely approaching them is to work")
+    cost_low: Decimal | None
+    cost_high: Decimal | None
+    overall: float
+    contact: ContactOut
+    reliability_breakdown: dict
+    evidence: list[dict] = []
+    reasons: list[str] = []
+    blockers: list[str] = Field(default=[], description="Why this option cannot be recommended")
+
+
+class ResearchLeadOut(BaseModel):
+    source: str
+    label: str
+    url: str
+    why: str
+    automatable: bool = Field(description="True when we hold credentials to query it directly")
+
+
+class ContactResolutionOut(BaseModel):
+    task_id: str
+    layer: Layer
+    recommended: dict | None
+    options: list[ContactOptionOut]
+    research_leads: list[ResearchLeadOut]
+
+
+# ---------------------------------------------------------------- outreach packets (M4)
+
+class TemplateOut(BaseModel):
+    name: str
+    description: str
+
+
+class PdfStatusOut(BaseModel):
+    """Whether the native PDF stack is present. The HTML letter works regardless."""
+
+    available: bool
+    version: str | None = None
+    error: str | None = None
+    install_hint: str | None = None
+
+
+class PacketGroupOut(BaseModel):
+    """Outreach-ready tasks bundled by the licensing desk that would receive the letter."""
+
+    rightsholder_id: str
+    name: str
+    kind: RightsholderKind
+    licensing_email: str | None
+    is_placeholder: bool
+    suggested_template: str
+    task_ids: list[str]
+    layers: list[Layer]
+    asset_titles: list[str]
+    existing_packet_ids: list[str] = []
+
+
+class PacketItemOut(BaseModel):
+    task_id: str
+    asset_id: str
+    asset_title: str | None
+    layer: Layer
+    stage: Stage
+    estimate_low: Decimal | None
+    estimate_high: Decimal | None
+
+
+class ExcerptOut(ORM):
+    id: str
+    packet_id: str
+    scene_id: str | None
+    label: str
+    text: str
+    created_at: datetime
+
+
+class ExcerptCreate(BaseModel):
+    """Selecting an excerpt is an explicit act: a scene, and optionally a range within it.
+
+    Omitting the offsets shares the whole scene. The text is frozen at selection time.
+    """
+
+    scene_id: str
+    start: int | None = Field(default=None, ge=0)
+    end: int | None = Field(default=None, ge=1)
+    label: str | None = Field(default=None, max_length=300)
+
+
+class ContextViewOut(ORM):
+    id: str
+    packet_id: str
+    recipient_name: str
+    recipient_email: str | None
+    token_hint: str
+    status: str = Field(description="active | expired | revoked")
+    expires_at: datetime
+    revoked_at: datetime | None
+    created_by: str
+    created_at: datetime
+    access_count: int
+    last_accessed_at: datetime | None
+
+
+class ContextViewCreated(ContextViewOut):
+    """Carries the plaintext token. Returned once, at creation, and never retrievable again."""
+
+    url: str
+    token: str
+
+
+class ContextViewCreate(BaseModel):
+    recipient_name: str = Field(min_length=1, max_length=300)
+    recipient_email: str | None = None
+    ttl_days: int | None = Field(default=None, ge=1, le=60,
+                                 description="Defaults to the configured 14-day expiry")
+
+
+class AccessOut(ORM):
+    id: int
+    view_id: str
+    at: datetime
+    outcome: str
+    path: str
+    client_ip: str | None
+    user_agent: str | None
+    referer: str | None
+
+
+class PacketOut(ORM):
+    id: str
+    project_id: str
+    rightsholder: RightsholderBrief
+    contact: ContactOut
+    template: str
+    status: str
+    recipient_name: str | None
+    recipient_email: str | None
+    sender_name: str | None
+    sender_email: str | None
+    sender_title: str | None
+    subject: str | None
+    intro_note: str | None
+    finalized_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+    items: list[PacketItemOut] = []
+    excerpts: list[ExcerptOut] = []
+    context_views: list[ContextViewOut] = []
+
+
+class PacketCreate(BaseModel):
+    task_ids: list[str] = Field(min_length=1, max_length=50)
+    template: str | None = Field(default=None, description="Defaults to the rightsholder's preference")
+    recipient_name: str | None = None
+    recipient_email: str | None = None
+    subject: str | None = None
+    intro_note: str | None = None
+
+
+class PacketUpdate(BaseModel):
+    """Only fields present in the body are applied."""
+
+    template: str | None = None
+    recipient_name: str | None = None
+    recipient_email: str | None = None
+    sender_name: str | None = None
+    sender_email: str | None = None
+    sender_title: str | None = None
+    subject: str | None = None
+    intro_note: str | None = None
+    task_ids: list[str] | None = Field(default=None, description="Replaces the packet's task set")
+    reason: str | None = Field(default=None, description="Recorded in the audit log")
+
+
+class PacketFinalize(BaseModel):
+    """Freeze the letter and move every task in the packet to outreach_sent."""
+
+    transition_tasks: bool = Field(default=True,
+                                   description="Move eligible tasks to 'outreach sent'")
+    reason: str | None = None

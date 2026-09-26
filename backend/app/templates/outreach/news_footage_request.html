@@ -1,0 +1,17 @@
+{# Broadcaster / news archive. Broadcast dates and story identification matter more than title. #}
+{% extends "outreach/base.html" %}
+
+{% block body %}
+<p>I am handling clearances on <strong>{{ project.name }}</strong> and would like to request a
+licence for the news material listed below from the {{ rightsholder.name }} archive.</p>
+
+<p>Where an item is identified only by title or upload date, I am glad to narrow it down against
+your catalogue references. We would also welcome guidance on any material within these segments
+that carries third-party rights or contributor restrictions you would want flagged before use.</p>
+{% endblock %}
+
+{% block closing %}
+<p>Could you confirm availability and provide a quotation for the use described, together with any
+restrictions on the material — contributor consents, embedded third-party footage, or territorial
+carve-outs — that would apply?</p>
+{% endblock %}

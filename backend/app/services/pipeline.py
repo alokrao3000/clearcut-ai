@@ -15,10 +15,12 @@ from app.audit import acting_as
 from app.config import get_settings
 from app.enums import ActorType, Layer, SourceType, Stage
 from app.models import Asset, ClearanceTask, Project, Rightsholder
-from app.services import budget, mapping, workflow
+from app.services import budget, contacts, mapping, workflow
 from app.services.ingest import MetadataFetcher, ingest_url
 
 ESTIMABLE_STAGES = {Stage.sourced, Stage.rights_mapped}
+# Once outreach has gone out, re-ranking who to contact is noise.
+RESOLVABLE_STAGES = {Stage.sourced, Stage.rights_mapped, Stage.budget_approved}
 
 
 @dataclass
@@ -68,6 +70,17 @@ def map_and_estimate(session: Session, project: Project, tasks: list[ClearanceTa
             if mapping.map_task(session, task, index, settings):
                 task.rightsholder = session.get(Rightsholder, task.rightsholder_id)
     estimate(session, project, tasks)
+    resolve_contacts(session, tasks, index)
+
+
+def resolve_contacts(session: Session, tasks: list[ClearanceTask], index=None) -> None:
+    """Work out who to approach for each task. Advisory only — never changes the assignment."""
+    settings = get_settings()
+    index = index if index is not None else mapping.build_index(session)
+    with acting_as(session, ActorType.system, "contact_resolver"):
+        for task in tasks:
+            if task.stage in RESOLVABLE_STAGES:
+                contacts.apply(session, task, settings, index)
 
 
 def estimate(session: Session, project: Project, tasks: list[ClearanceTask]) -> None:

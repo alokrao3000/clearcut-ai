@@ -20,17 +20,28 @@ export const keys = {
   board: (id: string) => ["board", id] as const,
   budget: (id: string) => ["budget", id] as const,
   history: (taskId: string) => ["history", taskId] as const,
+  contacts: (taskId: string) => ["contacts", taskId] as const,
   rightsholders: (q: string, layer?: Layer, kind?: RightsholderKind) =>
     ["rightsholders", q, layer ?? null, kind ?? null] as const,
+  packetGroups: (id: string) => ["packet-groups", id] as const,
+  packets: (id: string) => ["packets", id] as const,
+  packet: (id: string) => ["packet", id] as const,
+  templates: ["outreach-templates"] as const,
+  pdfStatus: ["pdf-status"] as const,
+  accesses: (viewId: string) => ["view-accesses", viewId] as const,
+  scripts: (id: string) => ["scripts", id] as const,
+  scenes: (scriptId: string) => ["scenes", scriptId] as const,
 };
 
-/** Any write can touch tasks, the board and the budget, so refresh the project view as a unit. */
+/** Any write can touch tasks, the board and the budget, so refresh the project view as a unit.
+ *  Packet grouping reads task stage and assignment, so it moves with them. */
 function invalidateProject(qc: QueryClient, projectId: string) {
   return Promise.all([
     qc.invalidateQueries({ queryKey: keys.assets(projectId) }),
     qc.invalidateQueries({ queryKey: keys.tasks(projectId) }),
     qc.invalidateQueries({ queryKey: keys.board(projectId) }),
     qc.invalidateQueries({ queryKey: keys.budget(projectId) }),
+    qc.invalidateQueries({ queryKey: keys.packetGroups(projectId) }),
   ]);
 }
 
@@ -101,6 +112,14 @@ export function useTaskHistory(taskId: string, enabled: boolean) {
   return useQuery({
     queryKey: keys.history(taskId),
     queryFn: () => api.taskHistory(taskId),
+    enabled,
+  });
+}
+
+export function useTaskContacts(taskId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: keys.contacts(taskId),
+    queryFn: () => api.taskContacts(taskId),
     enabled,
   });
 }
@@ -256,11 +275,191 @@ export function useEstimateTask(projectId: string) {
   });
 }
 
+export function useResolveContacts(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: api.resolveContacts,
+    onSuccess: async (_resolution, taskId) => {
+      qc.setQueryData(keys.contacts(taskId), _resolution);
+      await invalidateProject(qc, projectId);
+    },
+    onError: (e) => reportError(e, "Could not work out who to contact"),
+  });
+}
+
 export function useReestimateProject(projectId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () => api.reestimateProject(projectId),
     onSuccess: () => invalidateProject(qc, projectId),
     onError: (e) => reportError(e, "Could not re-run the budget matrix"),
+  });
+}
+
+// ---------------------------------------------------------------- outreach (M4)
+
+export function useOutreachTemplates() {
+  return useQuery({
+    queryKey: keys.templates,
+    queryFn: api.outreachTemplates,
+    staleTime: Infinity,
+  });
+}
+
+/** Whether this host can render PDFs. Cached hard — it cannot change while the API runs. */
+export function usePdfStatus() {
+  return useQuery({ queryKey: keys.pdfStatus, queryFn: api.pdfStatus, staleTime: Infinity });
+}
+
+export function usePacketGroups(projectId: string) {
+  return useQuery({
+    queryKey: keys.packetGroups(projectId),
+    queryFn: () => api.packetGroups(projectId),
+  });
+}
+
+export function usePackets(projectId: string) {
+  return useQuery({
+    queryKey: keys.packets(projectId),
+    queryFn: () => api.listPackets(projectId),
+  });
+}
+
+export function usePacket(packetId: string | null) {
+  return useQuery({
+    queryKey: keys.packet(packetId ?? ""),
+    queryFn: () => api.getPacket(packetId!),
+    enabled: Boolean(packetId),
+  });
+}
+
+export function useViewAccesses(viewId: string | null) {
+  return useQuery({
+    queryKey: keys.accesses(viewId ?? ""),
+    queryFn: () => api.contextViewAccesses(viewId!),
+    enabled: Boolean(viewId),
+  });
+}
+
+export function useScripts(projectId: string, enabled = true) {
+  return useQuery({
+    queryKey: keys.scripts(projectId),
+    queryFn: () => api.listScripts(projectId),
+    enabled,
+  });
+}
+
+export function useScenes(scriptId: string | null) {
+  return useQuery({
+    queryKey: keys.scenes(scriptId ?? ""),
+    queryFn: () => api.listScenes(scriptId!),
+    enabled: Boolean(scriptId),
+  });
+}
+
+/** Packet writes touch the packet, the project's packet list and the grouping. */
+function invalidatePackets(qc: QueryClient, projectId: string, packetId?: string) {
+  return Promise.all([
+    qc.invalidateQueries({ queryKey: keys.packets(projectId) }),
+    qc.invalidateQueries({ queryKey: keys.packetGroups(projectId) }),
+    ...(packetId ? [qc.invalidateQueries({ queryKey: keys.packet(packetId) })] : []),
+  ]);
+}
+
+export function useCreatePacket(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Parameters<typeof api.createPacket>[1]) =>
+      api.createPacket(projectId, body),
+    onSuccess: (packet) => invalidatePackets(qc, projectId, packet.id),
+    onError: (e) => reportError(e, "Could not build the packet"),
+  });
+}
+
+export function useUpdatePacket(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      packetId,
+      body,
+    }: {
+      packetId: string;
+      body: Parameters<typeof api.updatePacket>[1];
+    }) => api.updatePacket(packetId, body),
+    onSuccess: (packet) => invalidatePackets(qc, projectId, packet.id),
+    onError: (e) => reportError(e, "Could not save the packet"),
+  });
+}
+
+export function useDeletePacket(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: api.deletePacket,
+    onSuccess: () => invalidatePackets(qc, projectId),
+    onError: (e) => reportError(e, "Could not delete the packet"),
+  });
+}
+
+export function useFinalizePacket(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ packetId, transitionTasks }: { packetId: string; transitionTasks: boolean }) =>
+      api.finalizePacket(packetId, transitionTasks),
+    onSuccess: async (packet) => {
+      // Finalizing moves the tasks, so the board and budget move with it.
+      await invalidateProject(qc, projectId);
+      await invalidatePackets(qc, projectId, packet.id);
+    },
+    onError: (e) => reportError(e, "Could not finalize the packet"),
+  });
+}
+
+export function useAddExcerpt(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      packetId,
+      body,
+    }: {
+      packetId: string;
+      body: Parameters<typeof api.addExcerpt>[1];
+    }) => api.addExcerpt(packetId, body),
+    onSuccess: (_excerpt, { packetId }) => invalidatePackets(qc, projectId, packetId),
+    onError: (e) => reportError(e, "Could not share that excerpt"),
+  });
+}
+
+export function useDeleteExcerpt(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ excerptId }: { excerptId: string; packetId: string }) =>
+      api.deleteExcerpt(excerptId),
+    onSuccess: (_void, { packetId }) => invalidatePackets(qc, projectId, packetId),
+    onError: (e) => reportError(e, "Could not withdraw the excerpt"),
+  });
+}
+
+export function useCreateContextView(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      packetId,
+      body,
+    }: {
+      packetId: string;
+      body: Parameters<typeof api.createContextView>[1];
+    }) => api.createContextView(packetId, body),
+    onSuccess: (_view, { packetId }) => invalidatePackets(qc, projectId, packetId),
+    onError: (e) => reportError(e, "Could not issue the link"),
+  });
+}
+
+export function useRevokeContextView(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ viewId }: { viewId: string; packetId: string }) =>
+      api.revokeContextView(viewId),
+    onSuccess: (_view, { packetId }) => invalidatePackets(qc, projectId, packetId),
+    onError: (e) => reportError(e, "Could not revoke the link"),
   });
 }

@@ -20,6 +20,15 @@ class Settings(BaseSettings):
     auto_assign_min_score: float = 90.0
     auto_assign_min_margin: float = 5.0
 
+    # Contact resolution. Below this identity confidence an option is listed but never
+    # recommended: a cheap licence from a party that does not own the work clears nothing.
+    contact_min_identity: float = 60.0
+    # External rightsholder registries. None of these have a free public API, so each stays
+    # off until an endpoint or key is configured; without them we emit research links.
+    copyright_office_api_url: str | None = None
+    ccc_api_key: str | None = None
+    bisg_api_key: str | None = None
+
     # Background jobs (M3). With use_worker=False the same job functions run inline in the
     # request, which keeps tests and a worker-less dev box working unchanged.
     use_worker: bool = False
@@ -33,6 +42,20 @@ class Settings(BaseSettings):
     extraction_max_scene_chars: int = 12_000
     extraction_max_scenes_per_call: int = 6
     script_max_bytes: int = 20 * 1024 * 1024
+
+    # Outreach packets and tokenized context views (M4).
+    # public_base_url is what goes into the link a rightsholder receives, so it must be the
+    # externally reachable origin, not localhost, in anything but dev.
+    public_base_url: str = "http://localhost:8000"
+    sender_name: str = "Clearances"
+    sender_email: str = "clearances@example.com"
+    sender_title: str = "Clearance Coordinator"
+    context_view_ttl_days: int = 14
+    context_view_max_ttl_days: int = 60
+    # Excerpt images are rasterized so a script passage cannot be copied out of the page as
+    # text. Width is in CSS pixels at 2x for legibility on retina displays.
+    excerpt_image_width: int = 820
+    excerpt_max_chars: int = 4000
 
     # Thumbnail cache (MinIO locally, any S3-compatible store in production).
     thumbnail_cache_enabled: bool = False

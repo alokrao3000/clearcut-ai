@@ -1,0 +1,49 @@
+{#
+  Shown for an expired, revoked or unknown token. Deliberately says the same thing in all
+  three cases: telling a stranger that a token *used* to be valid confirms the link existed
+  and who it belonged to. The reason is recorded in the access log, not on the page.
+#}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="referrer" content="no-referrer">
+<title>Link unavailable</title>
+<style>
+  :root { --ink: #1a1a1a; --muted: #6b6559; --rule: #e2ded3; --bg: #fdfcf9; --card: #fff; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ink: #ece7dd; --muted: #a09a8c; --rule: #37342e; --bg: #1a1918; --card: #232120;
+    }
+  }
+  body {
+    margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    background: var(--bg); color: var(--ink); padding: 24px;
+    font-family: "Iowan Old Style", Palatino, Georgia, serif; line-height: 1.55;
+  }
+  .card {
+    background: var(--card); border: 1px solid var(--rule); border-radius: 8px;
+    padding: 30px 32px; max-width: 460px;
+  }
+  .kicker {
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 11px;
+    text-transform: uppercase; letter-spacing: .1em; color: var(--muted);
+  }
+  h1 { font-size: 22px; margin: 8px 0 12px; }
+  p { margin: 0 0 10px; font-size: 15px; }
+  .muted { color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="kicker">Clearance context</div>
+    <h1>This link is no longer available</h1>
+    <p>Context links are issued to a named recipient and expire automatically. This one has expired
+    or been withdrawn.</p>
+    <p class="muted">If you still need the material, reply to the clearance request you received and
+    a fresh link can be issued.</p>
+  </div>
+</body>
+</html>

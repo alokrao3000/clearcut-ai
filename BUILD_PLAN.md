@@ -45,10 +45,30 @@
 - Claude extraction with a strict schema: asset mentions, scene heading, quote, suggested layers. Every extracted asset links back to page/scene.
 - Thumbnail caching to S3-compatible storage (MinIO locally).
 
-### M4 — Outreach packets + secure context views
-- Clearance inquiry template (HTML → PDF), per-rightsholder template preferences.
+### M3.5 — Contact resolution — **done**
+- Ownership evidence read from credit lines: (P)/(C) notices, "provided to YouTube by",
+  "courtesy of", "published by", caption credits. The owner's own assertion outranks name matching.
+- Per-task ranking of who to approach on three separate axes: identity (can they grant it),
+  reliability (will they respond), cost (budget matrix per candidate). Cost only breaks ties
+  among credible owners; below the identity floor an option is shown with a blocker, never recommended.
+- Reliability = standing x verification x contact directness x reply history, weighted over the
+  components that have data, each carrying its own note.
+- No public API exists for CPRS or WATCH, and BISG/CCC are commercial, so unresolved tasks get
+  pre-filled research links instead of a pretend lookup. Each registry turns into a live provider
+  once its key or endpoint is configured.
+
+### M4 — Outreach packets + secure context views — **done**
+- Clearance inquiry templates (Jinja2 HTML → PDF), one per rightsholder kind, chosen from the
+  directory's `preferred_templates` and overridable per packet. One template renders the preview
+  and the PDF; finalizing freezes the HTML as the record of what was sent.
+- A packet addresses one *licensing desk*, not one task, so the grouping walks up the corporate
+  hierarchy. Internal budget estimates are excluded from every recipient-facing render.
 - Tokenized, expiring (14-day) context views with a recipient-specific watermark tiled across the page and rendered into images for excerpts. Access logged.
 - Scripts are never downloadable. Only excerpts the user explicitly selects are shared.
+- Tokens are stored as SHA-256 digests and shown once. Expired, revoked and unknown tokens render
+  an identical page, so a refusal never confirms that a link existed.
+- WeasyPrint's native stack is probed once and degrades to a 503 with install instructions rather
+  than failing the request; the HTML letter never depends on it.
 
 ### M5 — Mail loop + cost ledger
 - Outbound email with per-task reply-to tokens.

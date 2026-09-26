@@ -15,6 +15,20 @@ from app.enums import ActorType, Layer, RateUnit
 from app.enums import RightsholderKind as K
 from app.models import RateCard, Rightsholder, RightsholderAlias
 
+# Standing of each entity, used by contact reliability scoring. Majors run staffed
+# licensing desks; independents may never answer.
+TIERS = {
+    "ent_warner_bros_discovery": "major", "ent_warner_bros_pictures": "major",
+    "ent_warner_bros_animation": "major", "ent_nbcuniversal": "major",
+    "ent_universal_pictures": "major", "ent_nbc_news_archives": "notable",
+    "ent_sony_music_entertainment": "major", "ent_rca_records": "major",
+    "ent_sony_music_publishing": "major", "ent_universal_music_group": "major",
+    "ent_universal_music_publishing": "major", "ent_warner_music_group": "major",
+    "ent_warner_chappell": "major", "ent_getty_images": "major",
+    "ent_shutterstock": "notable", "ent_pond5": "notable", "ent_nara": "notable",
+    "ent_british_pathe": "notable", "ent_ap_archive": "notable",
+}
+
 # id, name, kind, parent, email, aliases (str, or (alias, [layers]))
 ENTITIES = [
     ("ent_warner_bros_discovery", "Warner Bros. Discovery", K.studio, None, "clip-licensing@wbd.example",
@@ -91,7 +105,8 @@ def seed(session: Session) -> bool:
         # Parents first so FK checks pass.
         for rid, name, kind, parent, email, aliases in ENTITIES:
             rh = Rightsholder(id=rid, name=name, kind=kind.value, parent_id=parent, licensing_email=email,
-                              preferred_templates=TEMPLATES.get(kind, []), is_placeholder=True)
+                              preferred_templates=TEMPLATES.get(kind, []), is_placeholder=True,
+                              tier=TIERS.get(rid, "unknown"))
             for a in aliases:
                 alias, layers = (a, None) if isinstance(a, str) else (a[0], [layer.value for layer in a[1]])
                 rh.aliases.append(RightsholderAlias(alias=alias, layers=layers))

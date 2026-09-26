@@ -4,12 +4,23 @@ import type {
   AuditEntry,
   Board,
   BudgetTotals,
+  ContactResolution,
+  ContextView,
+  ContextViewAccess,
+  ContextViewCreated,
   Disclaimer,
+  Excerpt,
   IngestResult,
   Layer,
+  OutreachTemplate,
+  Packet,
+  PacketGroup,
+  PdfStatus,
   Project,
   Rightsholder,
   RightsholderKind,
+  Scene,
+  ScriptDocument,
   Stage,
   Task,
 } from "@/lib/types";
@@ -176,6 +187,9 @@ export const api = {
   estimateTask: (id: string) =>
     request<Task>(`/api/tasks/${id}/estimate`, { method: "POST" }),
   taskHistory: (id: string) => request<AuditEntry[]>(`/api/tasks/${id}/history`),
+  taskContacts: (id: string) => request<ContactResolution>(`/api/tasks/${id}/contacts`),
+  resolveContacts: (id: string) =>
+    request<ContactResolution>(`/api/tasks/${id}/resolve-contacts`, { method: "POST" }),
 
   // ---------------------------------------------------------- directory
   searchRightsholders: (params: {
@@ -189,4 +203,76 @@ export const api = {
   // ---------------------------------------------------------- audit
   audit: (params: { table?: string; row_id?: string; actor_type?: string; limit?: number }) =>
     request<AuditEntry[]>(`/api/audit${qs(params)}`),
+
+  // ---------------------------------------------------------- outreach (M4)
+  outreachTemplates: () => request<OutreachTemplate[]>("/api/outreach/templates"),
+  pdfStatus: () => request<PdfStatus>("/api/outreach/pdf-status"),
+
+  packetGroups: (projectId: string) =>
+    request<PacketGroup[]>(`/api/projects/${projectId}/packet-groups`),
+  listPackets: (projectId: string) => request<Packet[]>(`/api/projects/${projectId}/packets`),
+  createPacket: (
+    projectId: string,
+    body: {
+      task_ids: string[];
+      template?: string | null;
+      recipient_name?: string | null;
+      recipient_email?: string | null;
+      subject?: string | null;
+      intro_note?: string | null;
+    },
+  ) => request<Packet>(`/api/projects/${projectId}/packets`, { method: "POST", json: body }),
+  getPacket: (id: string) => request<Packet>(`/api/packets/${id}`),
+  updatePacket: (
+    id: string,
+    body: Partial<{
+      template: string;
+      recipient_name: string | null;
+      recipient_email: string | null;
+      sender_name: string | null;
+      sender_email: string | null;
+      sender_title: string | null;
+      subject: string | null;
+      intro_note: string | null;
+      task_ids: string[];
+      reason: string | null;
+    }>,
+  ) => request<Packet>(`/api/packets/${id}`, { method: "PATCH", json: body }),
+  deletePacket: (id: string) => request<void>(`/api/packets/${id}`, { method: "DELETE" }),
+  finalizePacket: (id: string, transitionTasks = true) =>
+    request<Packet>(`/api/packets/${id}/finalize`, {
+      method: "POST",
+      json: { transition_tasks: transitionTasks },
+    }),
+
+  /** Absolute URLs — these are loaded into an iframe or opened in a tab, not fetched. */
+  packetPreviewUrl: (id: string, internal = true) =>
+    `${API_BASE}/api/packets/${id}/preview?internal=${internal}`,
+  packetPdfUrl: (id: string) => `${API_BASE}/api/packets/${id}/pdf`,
+
+  addExcerpt: (
+    packetId: string,
+    body: { scene_id: string; start?: number; end?: number; label?: string },
+  ) => request<Excerpt>(`/api/packets/${packetId}/excerpts`, { method: "POST", json: body }),
+  deleteExcerpt: (id: string) => request<void>(`/api/excerpts/${id}`, { method: "DELETE" }),
+
+  createContextView: (
+    packetId: string,
+    body: { recipient_name: string; recipient_email?: string | null; ttl_days?: number | null },
+  ) =>
+    request<ContextViewCreated>(`/api/packets/${packetId}/context-views`, {
+      method: "POST",
+      json: body,
+    }),
+  listContextViews: (packetId: string) =>
+    request<ContextView[]>(`/api/packets/${packetId}/context-views`),
+  revokeContextView: (id: string) =>
+    request<ContextView>(`/api/context-views/${id}/revoke`, { method: "POST" }),
+  contextViewAccesses: (id: string) =>
+    request<ContextViewAccess[]>(`/api/context-views/${id}/accesses`),
+
+  // Script reads, used only to choose an excerpt to share.
+  listScripts: (projectId: string) =>
+    request<ScriptDocument[]>(`/api/projects/${projectId}/scripts`),
+  listScenes: (scriptId: string) => request<Scene[]>(`/api/scripts/${scriptId}/scenes`),
 };

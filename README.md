@@ -3,8 +3,9 @@
 Pre-production asset sourcing and clearance workflow for film and media.
 See [BUILD_PLAN.md](BUILD_PLAN.md) for architecture decisions and milestones.
 
-**Status: M1 (core domain + API), M2 (frontend) and M3 (script ingestion + workers) complete.**
-Outreach packets and tokenized context views are M4.
+**Status: M1 (core domain + API), M2 (frontend), M3 (script ingestion + workers), M3.5 (contact
+resolution) and M4 (outreach packets + secure context views) complete.**
+The mail loop and cost ledger are M5.
 
 ## Run
 
@@ -74,6 +75,10 @@ The directory and rate cards in `backend/app/seed.py` are **unverified placehold
 | Tasks | `GET/PATCH /api/tasks/{id}`, `POST .../transition`, `POST .../estimate`, `GET .../history` |
 | Directory | `GET/POST /api/rightsholders`, `GET/PATCH /api/rightsholders/{id}` |
 | Audit | `GET /api/audit?table=&row_id=&actor_type=` |
+| Outreach | `GET /api/outreach/templates`, `GET /api/outreach/pdf-status`, `GET /api/projects/{id}/packet-groups`, `GET/POST /api/projects/{id}/packets` |
+| Packets | `GET/PATCH/DELETE /api/packets/{id}`, `GET .../preview`, `GET .../pdf`, `POST .../finalize`, `POST .../excerpts`, `DELETE /api/excerpts/{id}` |
+| Context views | `GET/POST /api/packets/{id}/context-views`, `POST /api/context-views/{id}/revoke`, `GET .../accesses` |
+| Public (no auth) | `GET /view/{token}`, `GET /view/{token}/excerpt/{id}.png` |
 
 ## Frontend
 
@@ -87,6 +92,7 @@ datagrid, dnd-kit for the board, TanStack Query for server state.
 | `/projects/{id}/tasks` | Task datagrid: sort, text filter, stage filter |
 | `/projects/{id}/board` | Kanban; drag a card to request a transition (keyboard: space, arrows, space) |
 | `/projects/{id}/budget` | Estimates grouped by layer with totals and contingency |
+| `/projects/{id}/outreach` | Tasks bundled by licensing desk, letter drafting, excerpt sharing, context links and their access logs |
 
 Clicking any task opens a drawer with the allowed transitions, the rightsholder picker (filtered to the
 kinds that can own that layer), the matcher's candidates and scores, the estimate breakdown, quote and
@@ -138,3 +144,98 @@ unreachable the enqueue falls back to running inline rather than losing the work
 row in `jobs`, readable at `GET /api/jobs/{id}`, so progress never depends on Redis being up.
 
 Thumbnail caching to MinIO is off until `CLEARCUT_THUMBNAIL_CACHE_ENABLED=true`.
+
+## Who to contact
+
+Every task carries a ranked answer to "who do we approach, and why", recomputed whenever the
+asset or the directory changes. `GET /api/tasks/{id}/contacts` returns it; the task drawer shows it.
+
+Three scores, kept separate because they answer different questions:
+
+| Score | Question | Inputs |
+|---|---|---|
+| **Identity** | Can this party actually grant the right? | The matcher's name score, raised when the material itself credits them; a manual assignment counts as certain |
+| **Reliability** | Will approaching them work? | Standing (major / notable / independent / unknown), whether a human verified the contact, how direct the licensing intake is, and reply history once M5 records it |
+| **Cost** | What will it cost? | The budget matrix, run per candidate |
+
+**Cost only breaks ties among parties that could plausibly grant the right.** A cheap licence
+from someone who does not own the work clears nothing, so anything below
+`CLEARCUT_CONTACT_MIN_IDENTITY` (default 60) is listed with a blocker and never recommended.
+When a cheaper option loses to a more reliable one, the recommendation says so and names it —
+Sony Music beating a one-person production company on reliability is visible, not hidden.
+
+Reliability is a weighted mean over the components that have data, and every component ships
+its own note, so the score can be argued with rather than taken on faith.
+
+### Where the evidence comes from
+
+Automatic, from material already held — the equivalent of checking the copyright page:
+
+- `℗ 2019 RCA Records` → the **master recording** owner
+- `© 1987 Sony Music Publishing` → the **underlying work**
+- `Provided to YouTube by …`, `Licensed by …`, `Courtesy of …`, `Published by …`, `Photo: …`
+
+These are the owner's own assertion, so they outrank name similarity, and the quote that
+produced the match is shown next to the recommendation.
+
+### Where it stops, and why
+
+The registries people actually use for this are not machine-readable:
+
+| Source | Status |
+|---|---|
+| U.S. Copyright Office (CPRS) | No documented public API. Set `CLEARCUT_COPYRIGHT_OFFICE_API_URL` at a gateway or a loaded copy of the bulk data to enable direct lookups |
+| WATCH (Harry Ransom Center) | Searchable web database, no API, no stated terms for automated access — we do not scrape it |
+| BISG Find a Rightsholder | Commercial; set `CLEARCUT_BISG_API_KEY` |
+| Copyright Clearance Center | Commercial; set `CLEARCUT_CCC_API_KEY` |
+
+So when nothing credible is found, the task produces **research leads** instead: pre-filled
+searches against the right registry for that layer, plus the Copyright Alliance guide for
+estates, probate records and firms-out-of-business. A lead marked `automatable` is one we hold
+credentials for; the rest are honest homework for a person.
+
+## Outreach packets and secure context views (M4)
+
+A **packet** is one clearance inquiry addressed to one *licensing desk*, covering however many
+tasks route there. The grain is the desk, not the task: a group that handles six clips from the
+same archive wants one letter listing six items. `GET /api/projects/{id}/packet-groups` does that
+bundling, walking up the corporate hierarchy — Warner Bros. Animation keeps its own intake, while
+RCA's master recordings route to Sony Music Entertainment.
+
+Templates are Jinja2, one per rightsholder kind, chosen from the directory's
+`preferred_templates` and overridable per packet. One template renders both the on-screen preview
+and the PDF, so what a producer approves is what goes out. Finalizing freezes the rendered HTML on
+the packet: the ledger has to hold the bytes that were sent, not a re-render of them months later.
+
+**Budget estimates never appear in the recipient-facing render.** They are shown only when
+`internal=true`, which the public token route cannot set. Quoting your own range to a licensing
+desk anchors the negotiation against the production.
+
+### Context views
+
+A **context view** is a tokenized, expiring, recipient-specific page:
+
+- The token is 256 bits from `secrets`, stored only as a SHA-256 digest and looked up by digest, so
+  a database dump yields no working links. The plaintext appears once, in the response that mints it.
+- Expiry (14 days by default) is checked on every request; revocation is immediate.
+- Expired, revoked and unknown tokens all render the **same** 404 page. Telling a stranger that a
+  link used to work confirms it existed and who held it.
+- Every hit is logged, refusals included — repeated attempts on a dead token are exactly what a
+  clearance audit wants to see.
+- A recipient-specific watermark is tiled across the page and burned into every excerpt image. It
+  is deterrence and attribution, not DRM, and is not claimed to be more.
+
+**The screenplay is never downloadable.** Only passages a user explicitly selects are shared, the
+text is frozen at selection time so later edits cannot widen what an issued link discloses, and each
+passage is served as a rasterized PNG rather than as text.
+
+### PDF rendering
+
+WeasyPrint wraps native Pango/cairo libraries that `pip install` does not provide. The import is
+probed once at startup, so a host without them degrades to a 503 naming what to install rather than
+a stack trace from inside cffi — the HTML letter works regardless. `GET /api/outreach/pdf-status`
+reports the state and the frontend disables the download button and shows the hint.
+
+On Windows, install the [GTK3 runtime](https://github.com/tschoonj/GTK-for-Windows-Runtime-Environment-Installer/releases)
+and restart the API. On Debian/Ubuntu, `apt-get install libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz0b libffi-dev`.
+On macOS, `brew install pango`.

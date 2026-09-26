@@ -1,0 +1,139 @@
+{#
+  The recipient-facing context view. Served from the public, unauthenticated token route.
+
+  Everything here is deliberately self-contained: no external stylesheet, no font CDN, no
+  analytics. A licensing desk opens this behind a corporate proxy, and a request that fails
+  to load should never be able to make the page look empty rather than watermarked.
+
+  `noindex` matters more than it looks — a tokenized URL pasted into a chat client that
+  pre-fetches links should not end up in a search index.
+#}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive, noimageindex">
+<meta name="referrer" content="no-referrer">
+<title>{{ project.name }} — clearance context</title>
+<style>
+  :root {
+    --ink: #1a1a1a; --muted: #6b6559; --rule: #e2ded3; --panel: #f7f5f0; --accent: #8a5a2b;
+    --bg: #fdfcf9; --card: #fff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ink: #ece7dd; --muted: #a09a8c; --rule: #37342e; --panel: #232120; --accent: #d39a5d;
+      --bg: #1a1918; --card: #232120;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: "Iowan Old Style", Palatino, Georgia, serif; font-size: 16px; line-height: 1.55;
+    background-image: url("{{ watermark_tile }}"); background-repeat: repeat;
+  }
+  .wrap { max-width: 780px; margin: 0 auto; padding: 32px 16px 72px; }
+  header.top { border-bottom: 2px solid var(--ink); padding-bottom: 12px; margin-bottom: 8px; }
+  .kicker {
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 11px;
+    text-transform: uppercase; letter-spacing: .1em; color: var(--muted);
+  }
+  h1 { font-size: 26px; margin: 6px 0 0; line-height: 1.2; }
+  .for { font-size: 14px; color: var(--muted); margin-top: 6px; }
+  .banner {
+    background: var(--panel); border: 1px solid var(--rule); border-left: 3px solid var(--accent);
+    border-radius: 4px; padding: 12px 15px; margin: 22px 0; font-size: 14px;
+  }
+  .banner strong { display: block; margin-bottom: 3px; }
+  h2 {
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 11px;
+    text-transform: uppercase; letter-spacing: .1em; color: var(--muted);
+    margin: 36px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--rule);
+  }
+  .card {
+    background: var(--card); border: 1px solid var(--rule); border-radius: 6px;
+    padding: 14px 16px; margin-bottom: 12px;
+  }
+  .card h3 { margin: 0 0 4px; font-size: 17px; }
+  .meta { font-size: 13px; color: var(--muted); word-break: break-word; }
+  .layer {
+    display: inline-block; font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
+    background: var(--panel); border: 1px solid var(--rule); border-radius: 3px;
+    padding: 2px 7px; margin-top: 8px;
+  }
+  dl.terms { display: grid; grid-template-columns: auto 1fr; gap: 6px 18px; margin: 0; font-size: 15px; }
+  dl.terms dt { color: var(--muted); }
+  dl.terms dd { margin: 0; font-weight: 600; }
+  figure.excerpt { margin: 0 0 18px; }
+  figure.excerpt img {
+    display: block; width: 100%; height: auto; border: 1px solid var(--rule); border-radius: 6px;
+    background: #fbfbf9;
+  }
+  figure.excerpt figcaption { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  footer.legal {
+    margin-top: 44px; padding-top: 14px; border-top: 1px solid var(--rule);
+    font-size: 12px; line-height: 1.5; color: var(--muted);
+  }
+  .expiry { font-weight: 600; color: var(--ink); }
+  @media print { body { background-image: url("{{ watermark_tile }}"); } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div class="kicker">Clearance context — confidential</div>
+    <h1>{{ project.name }}</h1>
+    <div class="for">Prepared for {{ view.recipient_name }}{% if rightsholder.name %}, {{ rightsholder.name }}{% endif %}</div>
+  </header>
+
+  <div class="banner">
+    <strong>This link is specific to you.</strong>
+    It expires on <span class="expiry">{{ expires_on }}</span>, is logged each time it is opened, and
+    carries a watermark identifying the recipient. The screenplay is not distributed — only the
+    passages shown below have been shared.
+  </div>
+
+  <h2>Material under discussion</h2>
+  {% for item in items %}
+  <div class="card">
+    <h3>{{ item.title or "Untitled material" }}</h3>
+    {% if item.owner_name %}<div class="meta">Credited: {{ item.owner_name }}</div>{% endif %}
+    {% if item.source %}<div class="meta">{{ item.source }}</div>{% endif %}
+    {% if item.usage %}<div class="meta">Proposed use: {{ item.usage }}</div>{% endif %}
+    {% if item.context %}<div class="meta">Context: {{ item.context }}</div>{% endif %}
+    <span class="layer">{{ item.layer_label }}</span>
+  </div>
+  {% endfor %}
+
+  <h2>Rights sought</h2>
+  <div class="card">
+    <dl class="terms">
+      <dt>Production type</dt><dd>{{ project.tier_label }}</dd>
+      <dt>Distribution</dt><dd>{{ project.scope_label }}</dd>
+      <dt>Territory</dt><dd>{{ project.territory }}</dd>
+      <dt>Term</dt><dd>{{ project.term }}</dd>
+    </dl>
+  </div>
+
+  {% if excerpts %}
+  <h2>Script context ({{ excerpts|length }} excerpt{{ "" if excerpts|length == 1 else "s" }})</h2>
+  {% for excerpt in excerpts %}
+  <figure class="excerpt">
+    <img src="{{ excerpt.image_url }}" alt="Script excerpt: {{ excerpt.label }}">
+    <figcaption>{{ excerpt.label }}</figcaption>
+  </figure>
+  {% endfor %}
+  {% endif %}
+
+  <footer class="legal">
+    <p>{{ disclaimer }}</p>
+    <p>Shared with {{ view.recipient_name }}{% if view.recipient_email %} ({{ view.recipient_email }}){% endif %}
+    on {{ issued_on }}. Not for redistribution.</p>
+  </footer>
+
+</div>
+</body>
+</html>

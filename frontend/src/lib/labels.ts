@@ -88,3 +88,28 @@ export const ACTOR_LABEL: Record<string, string> = {
   scraper: "Scraper",
   llm: "LLM",
 };
+
+// ------------------------------------------------------------ outreach (M4)
+
+/** Short names for the letter templates; the API also returns a longer description. */
+export const TEMPLATE_LABEL: Record<string, string> = {
+  clip_clearance_request: "Clip clearance request",
+  news_footage_request: "News footage request",
+  master_use_request: "Master use request",
+  sync_license_request: "Sync licence request",
+  stock_license_quote: "Stock quotation request",
+  archival_reproduction_request: "Archival reproduction request",
+  deal_memo_short_form: "Short-form deal memo",
+};
+
+export const VIEW_STATUS_BADGE: Record<string, string> = {
+  active: "bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200",
+  expired: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400",
+  revoked: "bg-rose-100 text-rose-900 dark:bg-rose-950 dark:text-rose-200",
+};
+
+export const ACCESS_OUTCOME_LABEL: Record<string, string> = {
+  ok: "Opened",
+  expired: "Refused — expired",
+  revoked: "Refused — revoked",
+};

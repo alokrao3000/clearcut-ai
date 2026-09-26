@@ -1,0 +1,17 @@
+{# Publisher: synchronisation rights in the composition. Split ownership is the norm here. #}
+{% extends "outreach/base.html" %}
+
+{% block body %}
+<p>I am handling music clearances on <strong>{{ project.name }}</strong> and would like to request a
+<strong>synchronisation licence</strong> for the composition(s) listed below.</p>
+
+<p>This request covers the underlying composition only; the master recording is being cleared
+separately with the label. Where {{ rightsholder.name }} controls less than 100% of a work, we would
+be grateful for your controlled share and the names of the co-publishers, so we can approach them in
+parallel rather than in sequence.</p>
+{% endblock %}
+
+{% block closing %}
+<p>Could you confirm your controlled share and provide a quotation for the use described, along with
+any restrictions — lyric changes, title use, or dramatic-use limits — that would apply?</p>
+{% endblock %}

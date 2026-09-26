@@ -1,0 +1,24 @@
+{#
+  Short-form deal memo, sent once a fee is agreed. Deliberately a summary of agreed terms for
+  counsel to paper, never an executable agreement: it carries no signature block and the footer
+  disclaimer stays in place.
+#}
+{% extends "outreach/base.html" %}
+
+{% block salutation %}
+<p>Dear {{ packet.recipient_name or (rightsholder.name ~ " Licensing") }},</p>
+{% endblock %}
+
+{% block body %}
+<p>Further to our correspondence, this note sets out the terms we understand to be agreed for the
+material listed below, for <strong>{{ project.name }}</strong>.</p>
+
+<p>Agreed fees are recorded per item in our clearance file and are confirmed separately alongside
+this summary. This document is a summary of commercial terms for both parties to check before your
+paperwork or ours is drawn up — it is not itself a licence and grants nothing.</p>
+{% endblock %}
+
+{% block closing %}
+<p>If this matches your understanding, could you confirm and let us know whether you will issue your
+own form of licence or would prefer us to circulate ours for signature?</p>
+{% endblock %}

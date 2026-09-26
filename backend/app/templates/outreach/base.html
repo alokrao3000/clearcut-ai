@@ -1,0 +1,201 @@
+{#
+  Shared chrome for every outreach letter. One template powers the on-screen preview and
+  the PDF, so what a producer approves is what WeasyPrint prints.
+
+  Child templates override `salutation`, `body` and `closing`. Everything structural — the
+  letterhead, the schedule of requested material, the terms, the footer — lives here, so a
+  new template cannot accidentally drop the disclaimer or the schedule.
+#}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ packet.subject or "Clearance inquiry" }}</title>
+<style>
+  @page { size: Letter; margin: 22mm 20mm 24mm; }
+  :root { --ink: #1a1a1a; --muted: #6b6559; --rule: #ddd8cc; --panel: #f7f5f0; --accent: #8a5a2b; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Iowan Old Style", Palatino, Georgia, serif;
+    font-size: 10.5pt; line-height: 1.5; color: var(--ink); background: #fff;
+    margin: 0 auto; max-width: 7.1in; padding: 0.5in 0;
+    {% if watermark %}background-image: url("{{ watermark }}"); background-repeat: repeat;{% endif %}
+  }
+  h1, h2, h3, th { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; }
+  header.letterhead {
+    display: flex; justify-content: space-between; align-items: baseline;
+    border-bottom: 2px solid var(--ink); padding-bottom: 8px; margin-bottom: 22px;
+  }
+  .wordmark { font-size: 13pt; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+  .letterdate { font-size: 9.5pt; color: var(--muted); }
+  .addresses { display: flex; justify-content: space-between; gap: 32px; margin-bottom: 20px; }
+  .addresses .block { font-size: 9.5pt; line-height: 1.45; }
+  .addresses .label {
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 7.5pt;
+    text-transform: uppercase; letter-spacing: .09em; color: var(--muted); margin-bottom: 3px;
+  }
+  .subject {
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 10pt; font-weight: 700;
+    border-left: 3px solid var(--accent); padding: 2px 0 2px 10px; margin: 0 0 18px;
+  }
+  p { margin: 0 0 11px; }
+  .note { white-space: pre-wrap; }
+  h2 {
+    font-size: 8.5pt; text-transform: uppercase; letter-spacing: .09em; color: var(--muted);
+    margin: 22px 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--rule);
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 9pt; }
+  th {
+    text-align: left; font-size: 7.5pt; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--muted); font-weight: 600; padding: 0 8px 5px 0; border-bottom: 1px solid var(--rule);
+  }
+  td { padding: 7px 8px 7px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  tr { page-break-inside: avoid; }
+  .title { font-weight: 600; }
+  .src { font-size: 8pt; color: var(--muted); word-break: break-all; }
+  .layer {
+    display: inline-block; font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 7.5pt; font-weight: 600; text-transform: uppercase; letter-spacing: .05em;
+    background: var(--panel); border: 1px solid var(--rule); border-radius: 3px; padding: 1px 6px;
+  }
+  .terms { background: var(--panel); border: 1px solid var(--rule); border-radius: 4px; padding: 12px 14px; }
+  .terms dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 0; font-size: 9.5pt; }
+  .terms dt { color: var(--muted); }
+  .terms dd { margin: 0; font-weight: 600; }
+  .secure {
+    border: 1px solid var(--accent); border-radius: 4px; padding: 11px 14px; margin: 16px 0;
+    font-size: 9.5pt; background: #fdfaf6;
+  }
+  .secure a { color: var(--accent); word-break: break-all; }
+  .signoff { margin-top: 26px; page-break-inside: avoid; }
+  .signoff .name { font-weight: 600; }
+  footer.disclaimer {
+    margin-top: 30px; padding-top: 9px; border-top: 1px solid var(--rule);
+    font-size: 7.5pt; line-height: 1.45; color: var(--muted);
+  }
+  .internal {
+    margin: 18px 0; padding: 11px 14px; border: 1px dashed #b45309; border-radius: 4px;
+    background: #fffbeb; font-size: 9pt;
+  }
+  .internal h3 { margin: 0 0 6px; font-size: 8pt; text-transform: uppercase; letter-spacing: .08em; color: #92400e; }
+  .internal td, .internal th { border-bottom-color: #f0dcae; }
+</style>
+</head>
+<body>
+
+<header class="letterhead">
+  <span class="wordmark">{{ packet.sender_name }}</span>
+  <span class="letterdate">{{ today }}</span>
+</header>
+
+<div class="addresses">
+  <div class="block">
+    <div class="label">To</div>
+    <strong>{{ rightsholder.name }}</strong><br>
+    {% if packet.recipient_name %}Attn: {{ packet.recipient_name }}<br>{% endif %}
+    {% if rightsholder.address %}{{ rightsholder.address }}<br>{% endif %}
+    {% if packet.recipient_email %}{{ packet.recipient_email }}{% endif %}
+  </div>
+  <div class="block">
+    <div class="label">From</div>
+    <strong>{{ packet.sender_name }}</strong><br>
+    {% if packet.sender_title %}{{ packet.sender_title }}<br>{% endif %}
+    {% if packet.sender_email %}{{ packet.sender_email }}{% endif %}
+  </div>
+</div>
+
+<p class="subject">{{ packet.subject }}</p>
+
+{% block salutation %}
+<p>Dear {{ packet.recipient_name or (rightsholder.name ~ " Licensing") }},</p>
+{% endblock %}
+
+{% block body %}{% endblock %}
+
+{% if packet.intro_note %}<p class="note">{{ packet.intro_note }}</p>{% endif %}
+
+<h2>Material requested</h2>
+<table>
+  <thead>
+    <tr>
+      <th style="width:38%">Material</th>
+      <th style="width:22%">Right sought</th>
+      <th style="width:18%">Proposed use</th>
+      <th>Context</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for item in items %}
+    <tr>
+      <td>
+        <div class="title">{{ item.title or "Untitled material" }}</div>
+        {% if item.owner_name %}<div class="src">Credited: {{ item.owner_name }}</div>{% endif %}
+        {% if item.source %}<div class="src">{{ item.source }}</div>{% endif %}
+      </td>
+      <td><span class="layer">{{ item.layer_label }}</span></td>
+      <td>{{ item.usage or "To be confirmed" }}</td>
+      <td>{{ item.context or "—" }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<h2>Rights sought</h2>
+<div class="terms">
+  <dl>
+    <dt>Production</dt><dd>{{ project.name }}</dd>
+    <dt>Production type</dt><dd>{{ project.tier_label }}</dd>
+    <dt>Distribution</dt><dd>{{ project.scope_label }}</dd>
+    <dt>Territory</dt><dd>{{ project.territory }}</dd>
+    <dt>Term</dt><dd>{{ project.term }}</dd>
+  </dl>
+</div>
+
+{% if context_view_url %}
+<div class="secure">
+  <strong>Secure context link.</strong> Scene context for the material above is available at the
+  link below. It is specific to this recipient, expires on {{ context_view_expires }}, and is
+  logged on access. The screenplay itself is not distributed; only the passages listed there have
+  been shared.<br>
+  <a href="{{ context_view_url }}">{{ context_view_url }}</a>
+</div>
+{% endif %}
+
+{% block closing %}
+<p>Could you confirm whether {{ rightsholder.name }} controls the rights listed above and, if so,
+provide a quotation and any restrictions that would apply? If any of this material is administered
+elsewhere, a pointer to the correct party would be very welcome.</p>
+{% endblock %}
+
+<div class="signoff">
+  <p>With thanks,</p>
+  <p class="name">{{ packet.sender_name }}</p>
+  {% if packet.sender_title %}<p>{{ packet.sender_title }}{% if project.name %} — {{ project.name }}{% endif %}</p>{% endif %}
+  {% if packet.sender_email %}<p>{{ packet.sender_email }}</p>{% endif %}
+</div>
+
+{% if internal %}
+<div class="internal">
+  <h3>Internal only — not part of the sent letter</h3>
+  <p>Budget estimates are deliberately excluded from the recipient-facing document: quoting an
+  internal range to a licensing desk anchors the negotiation against the production.</p>
+  <table>
+    <thead><tr><th>Material</th><th>Right</th><th>Estimate</th><th>Stage</th></tr></thead>
+    <tbody>
+    {% for item in items %}
+      <tr>
+        <td>{{ item.title or "Untitled" }}</td>
+        <td>{{ item.layer_label }}</td>
+        <td>{{ item.estimate or "Not estimated" }}</td>
+        <td>{{ item.stage_label }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<footer class="disclaimer">{{ disclaimer }}</footer>
+
+</body>
+</html>

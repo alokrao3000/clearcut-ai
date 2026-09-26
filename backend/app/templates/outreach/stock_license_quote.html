@@ -1,0 +1,21 @@
+{# Stock agency: a quotation request against catalogue IDs, not a negotiation. #}
+{% extends "outreach/base.html" %}
+
+{% block salutation %}
+<p>Hello,</p>
+{% endblock %}
+
+{% block body %}
+<p>I would like a quotation for the {{ rightsholder.name }} items listed below, for use in
+<strong>{{ project.name }}</strong>.</p>
+
+<p>Catalogue identifiers are given where we have them. If an item is available only under a licence
+tier different from the distribution described, please quote the nearest tier that covers it rather
+than declining the item.</p>
+{% endblock %}
+
+{% block closing %}
+<p>Could you send a quotation covering the items above, noting any that are editorial-use only or
+otherwise restricted for the distribution described? An indication of whether model and property
+releases are on file for each item would also be very helpful.</p>
+{% endblock %}

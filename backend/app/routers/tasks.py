@@ -3,12 +3,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.audit import Actor, set_actor
+from app.config import get_settings
 from app.deps import current_user_id, db, require_disclaimer
 from app.enums import ActorType
 from app.models import AuditLog, ClearanceTask
 from app.presenters import task_out
-from app.schemas import AuditOut, TaskOut, TaskUpdate, TransitionRequest
-from app.services import pipeline, workflow
+from app.schemas import AuditOut, ContactResolutionOut, TaskOut, TaskUpdate, TransitionRequest
+from app.services import contacts, pipeline, workflow
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 WRITE = [Depends(require_disclaimer)]
@@ -66,3 +67,31 @@ def history(task_id: str, session: Session = Depends(db)):
     load_task(session, task_id)
     return session.scalars(select(AuditLog).where(AuditLog.table_name == "clearance_tasks",
                                                   AuditLog.row_id == task_id).order_by(AuditLog.id)).all()
+
+
+@router.get("/{task_id}/contacts", response_model=ContactResolutionOut)
+def contacts_for_task(task_id: str, session: Session = Depends(db)):
+    """Everyone who could grant this right, ranked, with the reasoning behind the pick.
+
+    Computed fresh rather than read from the task's cached copy: the directory and the
+    asset's credits both change, and this is a read-only view either way.
+    """
+    task = load_task(session, task_id)
+    resolution = contacts.resolve(session, task, get_settings())
+    fields = resolution.to_task_fields()
+    return ContactResolutionOut(
+        task_id=task.id, layer=task.layer, recommended=fields["recommended_contact"],
+        options=fields["contact_options"], research_leads=fields["research_leads"],
+    )
+
+
+@router.post("/{task_id}/resolve-contacts", response_model=ContactResolutionOut, dependencies=WRITE)
+def resolve_contacts(task_id: str, session: Session = Depends(db)):
+    """Re-run contact resolution after the directory or the asset's credits changed."""
+    task = load_task(session, task_id)
+    pipeline.resolve_contacts(session, [task])
+    session.commit()
+    return ContactResolutionOut(
+        task_id=task.id, layer=task.layer, recommended=task.recommended_contact,
+        options=task.contact_options or [], research_leads=task.research_leads or [],
+    )

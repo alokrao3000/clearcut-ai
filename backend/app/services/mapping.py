@@ -161,3 +161,23 @@ def effective_contact(rh: Rightsholder) -> dict:
         node = node.parent
     return {"via_rightsholder_id": None, "via_name": None, "licensing_email": None, "address": None,
             "preferred_templates": [], "is_placeholder": rh.is_placeholder}
+
+
+def rightsholders_named(session: Session, name: str, layer: Layer) -> list[Rightsholder]:
+    """Directory entries whose name or alias matches a credited name closely.
+
+    Used by contact resolution: a party the material credits belongs in the running even
+    when fuzzy name ranking against the asset's own metadata missed them.
+    """
+    target = normalize(name)
+    if not target:
+        return []
+    allowed = LAYER_KINDS[layer]
+    out: list[Rightsholder] = []
+    for rh in session.scalars(select(Rightsholder).options(selectinload(Rightsholder.aliases))):
+        if RightsholderKind(rh.kind) not in allowed:
+            continue
+        names = [rh.name] + [alias.alias for alias in rh.aliases]
+        if any(score(target, normalize(candidate)) >= 88 for candidate in names):
+            out.append(rh)
+    return out

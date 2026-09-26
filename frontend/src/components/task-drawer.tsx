@@ -5,6 +5,7 @@ import { Calculator, Mail, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
 import { AuditHistory } from "@/components/audit-history";
+import { ContactPanel } from "@/components/contact-panel";
 import { RightsholderPicker } from "@/components/rightsholder-picker";
 import { StageBadge } from "@/components/stage-badge";
 import { Badge } from "@/components/ui/badge";
@@ -237,6 +238,12 @@ function TaskDrawerBody({
               ))}
             </div>
           )}
+        </Section>
+
+        <Separator />
+
+        <Section title="Who to contact">
+          <ContactPanel projectId={projectId} taskId={task.id} />
         </Section>
 
         <Separator />

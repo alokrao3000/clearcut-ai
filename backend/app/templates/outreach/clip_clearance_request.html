@@ -1,0 +1,12 @@
+{# Studio / production-company footage. The desk expects a scene-level description. #}
+{% extends "outreach/base.html" %}
+
+{% block body %}
+<p>I am handling clearances on <strong>{{ project.name }}</strong>, a {{ project.tier_label|lower }}
+currently in pre-production, and I am writing to request a licence for the material listed below,
+which we believe {{ rightsholder.name }} controls.</p>
+
+<p>Each item is a short excerpt used in the context described. We are happy to supply a cut of the
+sequence, a script excerpt, or a frame-accurate timecode list at whatever point in your process is
+most useful.</p>
+{% endblock %}

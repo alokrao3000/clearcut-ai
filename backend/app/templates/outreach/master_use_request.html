@@ -1,0 +1,17 @@
+{# Label: master use only. The composition is a separate letter to the publisher. #}
+{% extends "outreach/base.html" %}
+
+{% block body %}
+<p>I am handling music clearances on <strong>{{ project.name }}</strong> and would like to request a
+<strong>master use licence</strong> for the recording(s) listed below.</p>
+
+<p>This request covers the sound recording only. We are approaching the publisher separately for the
+corresponding synchronisation rights, and would be grateful if you could tell us if your records
+show the publishing administered elsewhere than we expect.</p>
+{% endblock %}
+
+{% block closing %}
+<p>Could you confirm that {{ rightsholder.name }} controls the master(s) for the territory and term
+above, and provide a quotation? If a different affiliate handles film and television licensing for
+this repertoire, a pointer to the right desk would be very welcome.</p>
+{% endblock %}

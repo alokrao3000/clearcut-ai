@@ -22,8 +22,14 @@ from app.models import AuditLog
 AUDITED_TABLES = {
     "projects", "assets", "clearance_tasks", "rightsholders", "rightsholder_aliases", "rate_cards",
     "disclaimer_acceptances",
+    # M4. Who was sent what, and who was handed a link to it, is the part of the record an
+    # E&O review actually asks about. `context_view_accesses` is itself a log, so it is not
+    # double-recorded here.
+    "outreach_packets", "packet_tasks", "context_excerpts", "context_views",
 }
-IGNORED_FIELDS = {"updated_at"}
+# `token_hash` is the lookup key for a live context view; copying it into an append-only
+# ledger widens its blast radius for no audit value. The view's id already identifies it.
+IGNORED_FIELDS = {"updated_at", "token_hash"}
 
 
 @dataclass(frozen=True)

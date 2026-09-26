@@ -19,6 +19,7 @@ const TABS = [
   { slug: "tasks", label: "Tasks" },
   { slug: "board", label: "Board" },
   { slug: "budget", label: "Budget" },
+  { slug: "outreach", label: "Outreach" },
 ] as const;
 
 export default function ProjectLayout({ children }: { children: React.ReactNode }) {

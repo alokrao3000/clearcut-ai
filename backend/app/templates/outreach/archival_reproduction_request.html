@@ -1,0 +1,21 @@
+{#
+  Archive. Often the fee is a reproduction/service charge rather than a rights fee, and the
+  archive may hold the material without holding the underlying rights — so the letter asks
+  those two questions separately.
+#}
+{% extends "outreach/base.html" %}
+
+{% block body %}
+<p>I am handling clearances on <strong>{{ project.name }}</strong> and would like to request
+reproduction of the holdings listed below from the {{ rightsholder.name }} collection.</p>
+
+<p>We understand that a reproduction fee and a rights position are separate questions. Where an item
+is in the public domain or free of known restrictions, we would be grateful if you could say so, and
+where the underlying rights rest with a depositor or third party, a pointer to that party would be
+very welcome.</p>
+{% endblock %}
+
+{% block closing %}
+<p>Could you confirm the reproduction fee and available formats for the items above, and indicate the
+rights status of each — public domain, restricted, or rights held by a third party?</p>
+{% endblock %}
