@@ -18,7 +18,8 @@ from sqlalchemy.orm import Session, selectinload
 from app.audit import Actor, set_actor
 from app.config import get_settings
 from app.db import get_session
-from app.deps import NOT_FOUND, WRITE, current_user_id, db, scoped, scoped_project
+from app.deps import (NOT_FOUND, WRITE, current_user, current_user_id, db, scoped,
+                      scoped_project)
 from app.enums import ActorType, Stage
 from app.models import (Asset, ClearanceTask, ContextExcerpt, ContextView, ContextViewAccess,
                         OutreachPacket, PacketTask, Project, Rightsholder, Scene)
@@ -137,12 +138,18 @@ def _single_intake(tasks: list[ClearanceTask]) -> str:
 
 # ---------------------------------------------------------------- catalogue
 
-@router.get("/api/outreach/templates", response_model=list[TemplateOut])
+# These two take no path or body parameters, so they had ended up with no session dependency
+# and therefore no authentication. Neither returns tenant data, but `pdf-status` carries the
+# native loader's error string, and there is no reason for either to answer a stranger.
+CATALOGUE = [Depends(current_user)]
+
+
+@router.get("/api/outreach/templates", response_model=list[TemplateOut], dependencies=CATALOGUE)
 def list_templates():
     return [TemplateOut(name=name, description=desc) for name, desc in packets.TEMPLATES.items()]
 
 
-@router.get("/api/outreach/pdf-status", response_model=PdfStatusOut)
+@router.get("/api/outreach/pdf-status", response_model=PdfStatusOut, dependencies=CATALOGUE)
 def pdf_status():
     """Whether PDF rendering works on this host. The HTML letter is available either way."""
     probe = pdf.probe()

@@ -86,6 +86,20 @@ def test_unauthenticated_requests_are_refused(anon):
     assert r.status_code == 401
 
 
+def test_only_the_intended_routes_answer_without_a_session(anon):
+    """The catalogue endpoints take no parameters, so it is easy for them to end up open.
+
+    `pdf-status` in particular carries the native loader's error string.
+    """
+    assert anon.get("/api/outreach/templates").status_code == 401
+    assert anon.get("/api/outreach/pdf-status").status_code == 401
+    # These four are public by design: two are how you get a session, two are probes.
+    assert anon.get("/api/health").status_code == 200
+    assert anon.get("/api/health/ready").status_code in (200, 503)
+    assert anon.post("/api/auth/login", json={"email": "x@y.example",
+                                              "password": "nope"}).status_code == 401
+
+
 def test_the_token_is_not_recoverable_from_the_session_list(client):
     token = client.headers["Authorization"].split(" ", 1)[1]
     [session] = client.get("/api/auth/sessions").json()

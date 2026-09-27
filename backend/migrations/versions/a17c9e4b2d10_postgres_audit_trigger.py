@@ -39,7 +39,7 @@ BEGIN
     IF (TG_OP = 'DELETE') THEN
         key := OLD.id::text;
         INSERT INTO db_audit_log (table_name, row_id, action, old_row, new_row, db_user, at)
-        VALUES (TG_TABLE_NAME, key, 'delete', to_jsonb(OLD), NULL, session_user, now());
+        VALUES (TG_TABLE_NAME, key, 'delete', to_jsonb(OLD)::json, NULL, session_user, now());
         RETURN OLD;
     ELSIF (TG_OP = 'UPDATE') THEN
         key := NEW.id::text;
@@ -48,12 +48,12 @@ BEGIN
             RETURN NEW;
         END IF;
         INSERT INTO db_audit_log (table_name, row_id, action, old_row, new_row, db_user, at)
-        VALUES (TG_TABLE_NAME, key, 'update', to_jsonb(OLD), to_jsonb(NEW), session_user, now());
+        VALUES (TG_TABLE_NAME, key, 'update', to_jsonb(OLD)::json, to_jsonb(NEW)::json, session_user, now());
         RETURN NEW;
     ELSE
         key := NEW.id::text;
         INSERT INTO db_audit_log (table_name, row_id, action, old_row, new_row, db_user, at)
-        VALUES (TG_TABLE_NAME, key, 'insert', NULL, to_jsonb(NEW), session_user, now());
+        VALUES (TG_TABLE_NAME, key, 'insert', NULL, to_jsonb(NEW)::json, session_user, now());
         RETURN NEW;
     END IF;
 END;
