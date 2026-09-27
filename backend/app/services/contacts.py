@@ -290,11 +290,17 @@ def resolve(session: Session, task: ClearanceTask, settings: Settings,
         if cheapest is not None and cheapest.rightsholder_id == recommended.rightsholder_id:
             recommended.reasons.insert(0, "Cheapest of the credible options, and the best overall.")
         elif cheapest is not None:
-            recommended.reasons.insert(
-                0,
-                f"{cheapest.name} would be cheaper, but scores {recommended.reliability - cheapest.reliability:.0f} "
-                "points lower on reliability.",
-            )
+            # `recommended` wins on overall score, `cheapest` purely on price, so the cheaper
+            # option can score the same or better on reliability. Saying it "scores -12 points
+            # lower" reads as a bug and undermines the advice.
+            gap = recommended.reliability - cheapest.reliability
+            if gap > 0.5:
+                why = f"scores {gap:.0f} points lower on reliability"
+            elif gap < -0.5:
+                why = f"is a weaker identity match despite scoring {-gap:.0f} points higher on reliability"
+            else:
+                why = "is a weaker identity match"
+            recommended.reasons.insert(0, f"{cheapest.name} would be cheaper, but {why}.")
 
     leads = providers.research_leads(task, claims, settings,
                                      unresolved=recommended is None)

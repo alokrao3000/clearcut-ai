@@ -40,23 +40,48 @@ function filenameFrom(url: string, fallback: string): string {
   return last && last.includes(".") ? last : fallback;
 }
 
-/** Open an authenticated URL in a new tab. */
+/**
+ * Open an authenticated URL in a new tab.
+ *
+ * The tab is claimed **synchronously**, before the fetch is awaited. A `window.open` after
+ * an await has lost the user gesture, so default Chrome and Safari block it — and the
+ * promise still resolves, so nothing surfaces the failure. Opening first and setting
+ * `location` afterwards keeps the gesture; if the popup was blocked anyway, this falls back
+ * to downloading rather than silently doing nothing.
+ */
 export async function openAuthed(url: string): Promise<void> {
-  const blob = await fetchAuthed(url);
+  const tab = window.open("", "_blank", "noopener,noreferrer");
+  let blob: Blob;
+  try {
+    blob = await fetchAuthed(url);
+  } catch (error) {
+    tab?.close();
+    throw error;
+  }
+
   const objectUrl = URL.createObjectURL(blob);
-  window.open(objectUrl, "_blank", "noopener,noreferrer");
+  if (tab && !tab.closed) {
+    tab.location = objectUrl;
+  } else {
+    await saveBlob(blob, filenameFrom(url, "download"));
+    URL.revokeObjectURL(objectUrl);
+    return;
+  }
   setTimeout(() => URL.revokeObjectURL(objectUrl), REVOKE_AFTER_MS);
 }
 
-/** Save an authenticated URL to disk. */
-export async function downloadAuthed(url: string, filename?: string): Promise<void> {
-  const blob = await fetchAuthed(url);
+async function saveBlob(blob: Blob, filename: string): Promise<void> {
   const objectUrl = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = objectUrl;
-  link.download = filename ?? filenameFrom(url, "download");
+  link.download = filename;
   document.body.appendChild(link);
   link.click();
   link.remove();
   setTimeout(() => URL.revokeObjectURL(objectUrl), REVOKE_AFTER_MS);
+}
+
+/** Save an authenticated URL to disk. A download link needs no popup permission. */
+export async function downloadAuthed(url: string, filename?: string): Promise<void> {
+  await saveBlob(await fetchAuthed(url), filename ?? filenameFrom(url, "download"));
 }

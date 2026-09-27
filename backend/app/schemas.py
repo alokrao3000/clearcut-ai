@@ -451,6 +451,9 @@ class PacketOut(ORM):
     subject: str | None
     intro_note: str | None
     finalized_at: datetime | None
+    # When the letter actually left, which is not the same as when it was frozen: sending is
+    # a separate call that can be refused or fail. The UI must not infer one from the other.
+    sent_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
     items: list[PacketItemOut] = []

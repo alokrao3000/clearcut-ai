@@ -22,7 +22,8 @@ from app.deps import (NOT_FOUND, WRITE, current_user, current_user_id, db, scope
                       scoped_project)
 from app.enums import ActorType, Stage
 from app.models import (Asset, ClearanceTask, ContextExcerpt, ContextView, ContextViewAccess,
-                        OutreachPacket, PacketTask, Project, Rightsholder, Scene)
+                        MailThread, OutreachPacket, PacketTask, Project, Rightsholder,
+                        Scene)
 from app.schemas import (AccessOut, ContactOut, ContextViewCreate, ContextViewCreated,
                          ContextViewOut, ExcerptCreate, ExcerptOut, PacketCreate, PacketFinalize,
                          PacketGroupOut, PacketItemOut, PacketOut, PacketUpdate, PdfStatusOut,
@@ -44,6 +45,7 @@ def _packet_query():
         selectinload(OutreachPacket.project),
         selectinload(OutreachPacket.excerpts),
         selectinload(OutreachPacket.context_views),
+        selectinload(OutreachPacket.thread).selectinload(MailThread.outbound),
         selectinload(OutreachPacket.items).selectinload(PacketTask.task).selectinload(ClearanceTask.asset),
     )
 
@@ -56,6 +58,15 @@ def load_packet(session: Session, packet_id: str) -> OutreachPacket:
     return packet
 
 
+def _sent_at(packet: OutreachPacket):
+    """The first successful delivery, or None. Finalizing is not sending."""
+    thread = packet.thread
+    if thread is None:
+        return None
+    sent = [m.sent_at for m in thread.outbound if m.status == "sent" and m.sent_at]
+    return min(sent) if sent else None
+
+
 def packet_out(packet: OutreachPacket) -> PacketOut:
     """Built field by field rather than from_attributes: `items` are PacketTask links, and
     what the UI wants is the task behind each one."""
@@ -66,7 +77,8 @@ def packet_out(packet: OutreachPacket) -> PacketOut:
         recipient_name=packet.recipient_name, recipient_email=packet.recipient_email,
         sender_name=packet.sender_name, sender_email=packet.sender_email,
         sender_title=packet.sender_title, subject=packet.subject, intro_note=packet.intro_note,
-        finalized_at=packet.finalized_at, created_at=packet.created_at, updated_at=packet.updated_at,
+        finalized_at=packet.finalized_at, sent_at=_sent_at(packet),
+        created_at=packet.created_at, updated_at=packet.updated_at,
         items=[PacketItemOut(task_id=item.task.id, asset_id=item.task.asset_id,
                              asset_title=item.task.asset.title, layer=item.task.layer,
                              stage=item.task.stage, estimate_low=item.task.estimate_low,
@@ -245,7 +257,13 @@ def update_packet(packet_id: str, body: PacketUpdate, session: Session = Depends
     set_actor(session, Actor(ActorType.user, user_id, body.reason or "Edited outreach packet"))
     fields = body.model_fields_set - {"reason", "task_ids"}
 
-    if body.template is not None:
+    # `template` is optional in the schema so a caller can omit it, but the column is not
+    # nullable. An explicit null would skip the validation branch below and then fail at
+    # commit with a 500, so it is rejected here as the 422 it actually is.
+    if "template" in fields:
+        if body.template is None:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
+                                "A packet must have a template. Omit the field to leave it as is.")
         try:
             packets.validate_template(body.template)
         except packets.PacketError as exc:

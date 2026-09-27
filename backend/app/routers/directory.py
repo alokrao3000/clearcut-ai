@@ -35,6 +35,12 @@ def load_own_rightsholder(session: Session, rid: str) -> Rightsholder:
     return rh
 
 
+def _namespaced(base: str, org_id: str) -> str:
+    """A collision-free id for a tenant whose preferred one is taken by someone else."""
+    suffix = f"_{org_id[:8]}"
+    return f"{base[:80 - len(suffix)]}{suffix}"
+
+
 def _check_parent(session: Session, rid: str, parent_id: str | None) -> None:
     node = load_rightsholder(session, parent_id) if parent_id else None
     while node is not None:
@@ -65,26 +71,34 @@ def search_rightsholders(q: str | None = None, kind: RightsholderKind | None = N
         rows = [rh for _, rh in sorted(scored, key=lambda x: (-x[0], x[1].name))]
     else:
         rows = sorted(rows, key=lambda r: r.name)
-    return [rightsholder_out(rh) for rh in rows[:limit]]
+    org_id = session_org(session)
+    return [rightsholder_out(rh, org_id) for rh in rows[:limit]]
 
 
 @router.get("/api/rightsholders/{rid}", response_model=RightsholderOut)
 def get_rightsholder(rid: str, session: Session = Depends(db)):
-    return rightsholder_out(load_rightsholder(session, rid))
+    return rightsholder_out(load_rightsholder(session, rid), session_org(session))
 
 
 @router.post("/api/rightsholders", response_model=RightsholderOut, status_code=201, dependencies=WRITE)
 def create_rightsholder(body: RightsholderCreate, session: Session = Depends(db)):
     """Create an entry this organization owns. It is invisible to every other tenant."""
-    if session.get(Rightsholder, body.id):
-        raise HTTPException(status.HTTP_409_CONFLICT, "Rightsholder id already exists")
+    # The primary key is global, so two tenants cannot both hold `ent_acme`. Telling the
+    # second one "that id exists" would also confirm the existence of a row they can neither
+    # see nor read, so the id they asked for is namespaced to them instead.
+    existing = session.get(Rightsholder, body.id)
+    if existing is not None and existing.org_id == session_org(session):
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            "You already have a directory entry with that id.")
+    if existing is not None:
+        body = body.model_copy(update={"id": _namespaced(body.id, session_org(session))})
     _check_parent(session, body.id, body.parent_id)
     rh = Rightsholder(**body.model_dump(exclude={"aliases", "kind"}), kind=body.kind.value,
                       org_id=session_org(session), is_placeholder=False)
     rh.aliases = [RightsholderAlias(alias=a) for a in dict.fromkeys(body.aliases)]
     session.add(rh)
     session.commit()
-    return rightsholder_out(rh)
+    return rightsholder_out(rh, session_org(session))
 
 
 @router.patch("/api/rightsholders/{rid}", response_model=RightsholderOut, dependencies=WRITE)
@@ -96,7 +110,7 @@ def update_rightsholder(rid: str, body: RightsholderUpdate, session: Session = D
     for field, value in data.items():
         setattr(rh, field, getattr(value, "value", value))
     session.commit()
-    return rightsholder_out(rh)
+    return rightsholder_out(rh, session_org(session))
 
 
 @router.get("/api/audit", response_model=list[AuditOut])

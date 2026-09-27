@@ -358,6 +358,8 @@ export interface Packet {
   subject: string | null;
   intro_note: string | null;
   finalized_at: string | null;
+  /** When the letter actually went out. Finalizing only freezes it; sending is separate. */
+  sent_at: string | null;
   created_at: string;
   updated_at: string;
   items: PacketItem[];

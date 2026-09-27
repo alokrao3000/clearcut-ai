@@ -119,15 +119,46 @@ def test_revoking_a_session_from_the_list_ends_it(client):
     assert client.get("/api/auth/me").status_code == 401
 
 
-def test_changing_a_password_ends_every_session(anon, client):
-    assert client.post("/api/auth/password", json={
-        "current_password": TEST_PASSWORD,
-        "new_password": "a-completely-different-passphrase"}).status_code == 204
-    assert client.get("/api/auth/me").status_code == 401
+def test_changing_a_password_ends_every_session_but_not_the_caller(anon, client):
+    """Every session goes, including this one — a fresh token comes back in its place.
 
-    r = anon.post("/api/auth/login", json={"email": "owner@test.example",
-                                           "password": "a-completely-different-passphrase"})
+    Carving out the current session would mean trusting that it is not the compromised one.
+    """
+    old_token = client.headers["Authorization"].split(" ", 1)[1]
+    r = client.post("/api/auth/password", json={
+        "current_password": TEST_PASSWORD,
+        "new_password": "a-completely-different-passphrase"})
     assert r.status_code == 200
+    new_token = r.json()["access_token"]
+    assert new_token != old_token
+
+    # The old token is dead...
+    assert client.get("/api/auth/me",
+                      headers={"Authorization": f"Bearer {old_token}"}).status_code == 401
+    # ...and the caller is not signed out for their trouble.
+    assert client.get("/api/auth/me",
+                      headers={"Authorization": f"Bearer {new_token}"}).status_code == 200
+
+    assert anon.post("/api/auth/login", json={
+        "email": "owner@test.example",
+        "password": "a-completely-different-passphrase"}).status_code == 200
+
+
+def test_a_second_session_is_ended_by_a_password_change(anon, client):
+    client.post("/api/users", json={"email": "other@test.example", "name": "Other",
+                                    "password": TEST_PASSWORD, "role": "member"})
+    first = anon.post("/api/auth/login", json={"email": "other@test.example",
+                                               "password": TEST_PASSWORD}).json()["access_token"]
+    second = anon.post("/api/auth/login", json={"email": "other@test.example",
+                                                "password": TEST_PASSWORD}).json()["access_token"]
+
+    changed = anon.post("/api/auth/password",
+                        headers={"Authorization": f"Bearer {second}"},
+                        json={"current_password": TEST_PASSWORD,
+                              "new_password": "yet-another-good-passphrase"})
+    assert changed.status_code == 200
+    assert anon.get("/api/auth/me",
+                    headers={"Authorization": f"Bearer {first}"}).status_code == 401
 
 
 def test_the_wrong_current_password_does_not_change_anything(client):
@@ -345,3 +376,49 @@ def test_a_project_always_carries_its_tenant(accepted, project, SessionTest):
         row = session.get(Project, project["id"])
         owner = session.query(User).filter_by(email="owner@test.example").one()
         assert row.org_id == owner.org_id
+
+
+# ---------------------------------------------------- directory leakage through matching
+
+def test_a_private_directory_entry_never_matches_another_tenants_asset(accepted, other_org):
+    """Scoping the directory endpoint is not enough — the matcher reads the table directly.
+
+    The rights matcher and the contact resolver both build their own index. If that index is
+    unscoped, one tenant's private licensing address is disclosed to another tenant, can be
+    auto-assigned to their task, and destroys the score margin their own match needed.
+    """
+    created = accepted.post("/api/rightsholders", json={
+        "id": "ent_secret_label", "name": "Rick Astley", "kind": "label",
+        "licensing_email": "deals@secret.example", "aliases": ["Rick Astley"]})
+    assert created.status_code == 201
+
+    [res] = ingest(other_org, other_org.post("/api/projects", json={
+        "name": "Rival Doc", "distribution_scope": "festival",
+        "production_tier": "ultra_low"}).json()["id"], {"url": RICK})
+    tasks = tasks_by_layer(other_org, res["asset_id"])
+    master = tasks["master_recording"]
+
+    candidate_ids = {c["rightsholder_id"] for c in master["mapping_candidates"]}
+    assert "ent_secret_label" not in candidate_ids
+    assert (master["rightsholder"] or {}).get("id") != "ent_secret_label"
+
+    resolution = other_org.get(f"/api/tasks/{master['id']}/contacts").json()
+    contacts_seen = {o["rightsholder_id"] for o in resolution["options"]}
+    assert "ent_secret_label" not in contacts_seen
+    assert "deals@secret.example" not in str(resolution)
+
+
+def test_a_private_child_is_hidden_from_another_tenants_view_of_a_shared_parent(accepted,
+                                                                                other_org):
+    """`children` comes from a relationship, which the query filter never touches."""
+    accepted.post("/api/rightsholders", json={
+        "id": "ent_secret_co", "name": "Secret Co", "kind": "studio",
+        "parent_id": "ent_warner_bros_discovery"})
+
+    mine = accepted.get("/api/rightsholders/ent_warner_bros_discovery").json()
+    theirs = other_org.get("/api/rightsholders/ent_warner_bros_discovery").json()
+
+    assert "ent_secret_co" in {c["id"] for c in mine["children"]}
+    assert "ent_secret_co" not in {c["id"] for c in theirs["children"]}
+    # The shared children are still there for both.
+    assert "ent_warner_bros_pictures" in {c["id"] for c in theirs["children"]}

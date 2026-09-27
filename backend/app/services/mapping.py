@@ -60,8 +60,25 @@ class _IndexEntry:
     rightsholder: Rightsholder
 
 
+def visible_to(session: Session):
+    """Which directory rows this session may match against.
+
+    The shared catalogue (`org_id IS NULL`) plus the caller's own entries. **Fails closed**:
+    a session with no tenant stamped on it — a worker that forgot, a future code path that
+    does not go through a request — sees the shared catalogue only, never everything. Getting
+    this wrong the other way means one customer's private licensing contacts are matched
+    against another customer's assets.
+    """
+    org_id = session.info.get("org_id")
+    if org_id is None:
+        return Rightsholder.org_id.is_(None)
+    return (Rightsholder.org_id.is_(None)) | (Rightsholder.org_id == org_id)
+
+
 def build_index(session: Session) -> list[_IndexEntry]:
-    rows = session.scalars(select(Rightsholder).options(selectinload(Rightsholder.aliases))).all()
+    rows = session.scalars(
+        select(Rightsholder).where(visible_to(session))
+        .options(selectinload(Rightsholder.aliases))).all()
     index = []
     for rh in rows:
         index.append(_IndexEntry(normalize(rh.name), rh.name, None, rh))
@@ -174,7 +191,8 @@ def rightsholders_named(session: Session, name: str, layer: Layer) -> list[Right
         return []
     allowed = LAYER_KINDS[layer]
     out: list[Rightsholder] = []
-    for rh in session.scalars(select(Rightsholder).options(selectinload(Rightsholder.aliases))):
+    for rh in session.scalars(select(Rightsholder).where(visible_to(session))
+                              .options(selectinload(Rightsholder.aliases))):
         if RightsholderKind(rh.kind) not in allowed:
             continue
         names = [rh.name] + [alias.alias for alias in rh.aliases]

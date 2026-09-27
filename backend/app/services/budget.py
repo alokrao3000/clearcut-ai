@@ -46,15 +46,30 @@ def _round(value: Decimal) -> Decimal:
     return (value / ROUND_TO).quantize(Decimal(1), rounding=ROUND_HALF_UP) * ROUND_TO
 
 
+def _visible_cards(session: Session):
+    """Rate cards this session may price against: the shared ones plus its own.
+
+    Same rule and the same fail-closed default as the rightsholder directory — one tenant's
+    negotiated rate must never set another tenant's budget.
+    """
+    org_id = session.info.get("org_id")
+    if org_id is None:
+        return RateCard.org_id.is_(None)
+    return (RateCard.org_id.is_(None)) | (RateCard.org_id == org_id)
+
+
 def find_rate_card(session: Session, rh: Rightsholder | None, layer: Layer) -> tuple[RateCard | None, str]:
+    visible = _visible_cards(session)
     node, depth, seen = rh, 0, set()
     while node is not None and node.id not in seen:
         seen.add(node.id)
-        card = session.scalar(select(RateCard).where(RateCard.rightsholder_id == node.id, RateCard.layer == layer))
+        card = session.scalar(select(RateCard).where(
+            RateCard.rightsholder_id == node.id, RateCard.layer == layer, visible))
         if card:
             return card, "rightsholder" if depth == 0 else f"parent:{node.id}"
         node, depth = node.parent, depth + 1
-    card = session.scalar(select(RateCard).where(RateCard.rightsholder_id.is_(None), RateCard.layer == layer))
+    card = session.scalar(select(RateCard).where(
+        RateCard.rightsholder_id.is_(None), RateCard.layer == layer, visible))
     return card, "industry_default"
 
 

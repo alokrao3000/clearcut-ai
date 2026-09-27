@@ -29,7 +29,8 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.config import DISCLAIMER_TEXT, DISCLAIMER_VERSION
 from app.models import (Asset, AuditLog, ClearanceTask, ContextView, DbAuditLog,
-                        DisclaimerAcceptance, OutboundMessage, OutreachPacket, Project, User)
+                        DisclaimerAcceptance, InboundMessage, MailThread, OutreachPacket,
+                        Project, ReplyIntent, User)
 from app.services.packets import LAYER_LABEL, SCOPE_LABEL, STAGE_LABEL, TIER_LABEL
 
 # Tables whose history belongs to a project's clearance file.
@@ -111,11 +112,34 @@ def collect(session: Session, project: Project) -> ExportData:
         select(OutreachPacket).where(OutreachPacket.project_id == project.id)
         .options(selectinload(OutreachPacket.rightsholder),
                  selectinload(OutreachPacket.context_views).selectinload(ContextView.accesses),
-                 selectinload(OutreachPacket.thread))
+                 selectinload(OutreachPacket.excerpts),
+                 selectinload(OutreachPacket.items),
+                 selectinload(OutreachPacket.thread).selectinload(MailThread.outbound))
         .order_by(OutreachPacket.created_at)))
 
+    # Every row whose history belongs to this project's clearance file. The packet-side
+    # records are keyed by their own ids, not the packet's, so collecting only projects,
+    # assets, tasks and packets silently drops the context views, excerpts, outreach
+    # messages and reply trail — in an export whose entire purpose is that trail.
     row_ids = ({project.id} | {t.id for t in tasks} | {t.asset_id for t in tasks}
                | {p.id for p in packets})
+    for packet in packets:
+        row_ids |= {v.id for v in packet.context_views}
+        row_ids |= {e.id for e in packet.excerpts}
+        row_ids |= {str(item.id) for item in packet.items}
+        if packet.thread is not None:
+            row_ids |= {m.id for m in packet.thread.outbound}
+
+    # Reply intents and the changes they proposed hang off inbound mail, which is reached
+    # through the thread rather than the packet.
+    intents = list(session.scalars(
+        select(ReplyIntent).join(InboundMessage, InboundMessage.id == ReplyIntent.inbound_id)
+        .join(MailThread, MailThread.id == InboundMessage.thread_id)
+        .where(MailThread.packet_id.in_({p.id for p in packets} or {""}))
+        .options(selectinload(ReplyIntent.changes))))
+    for intent in intents:
+        row_ids.add(intent.id)
+        row_ids |= {c.id for c in intent.changes}
 
     audit = list(session.scalars(
         select(AuditLog)

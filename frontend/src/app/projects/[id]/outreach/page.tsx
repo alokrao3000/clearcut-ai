@@ -192,16 +192,22 @@ export default function OutreachPage() {
                         )}
                       </td>
                       <td className="px-3 py-2">
-                        {packet.status === "finalized" ? (
-                          <Badge
-                            variant="secondary"
-                            title={absoluteTime(packet.finalized_at ?? packet.updated_at)}
-                          >
-                            <FileText className="mr-1 size-3" /> Sent{" "}
-                            {relativeTime(packet.finalized_at ?? packet.updated_at)}
+                        {/* Finalizing only freezes the letter. Delivery is a separate call
+                            that can be refused or fail, so "Sent" must not be inferred from
+                            the packet's own status in a clearance-record product. */}
+                        {packet.status !== "finalized" ? (
+                          <Badge variant="outline">Draft</Badge>
+                        ) : packet.sent_at ? (
+                          <Badge variant="secondary" title={absoluteTime(packet.sent_at)}>
+                            <Mail className="mr-1 size-3" /> Sent {relativeTime(packet.sent_at)}
                           </Badge>
                         ) : (
-                          <Badge variant="outline">Draft</Badge>
+                          <Badge
+                            variant="muted"
+                            title={absoluteTime(packet.finalized_at ?? packet.updated_at)}
+                          >
+                            <FileText className="mr-1 size-3" /> Ready to send
+                          </Badge>
                         )}
                       </td>
                     </tr>

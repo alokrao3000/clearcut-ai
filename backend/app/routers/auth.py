@@ -117,10 +117,16 @@ def revoke_one(session_id: str, user: User = Depends(current_user), session: Ses
         session.commit()
 
 
-@router.post("/password", status_code=204)
-def change_password(body: PasswordChange, user: User = Depends(current_user),
+@router.post("/password", response_model=TokenOut)
+def change_password(body: PasswordChange, request: Request, user: User = Depends(current_user),
                     session: Session = Depends(db)):
-    """Changing a password ends every other session — that is usually the whole point."""
+    """Change a password and end every other session — usually the whole point of doing it.
+
+    Every session goes, including the caller's, because carving out the current one means
+    trusting that it is not the compromised one. A fresh token comes back in the response
+    instead, so the person who just proved they know the old password is not signed out for
+    their trouble.
+    """
     if not auth.verify_password(body.current_password, user.password_hash):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "That is not your current password.")
     settings = get_settings()
@@ -130,6 +136,7 @@ def change_password(body: PasswordChange, user: User = Depends(current_user),
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
     auth.revoke_all_for(session, user.id)
     session.commit()
+    return _issue(session, user, request)
 
 
 # ---------------------------------------------------------------- organization and users

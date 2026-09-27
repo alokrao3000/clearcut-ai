@@ -148,3 +148,45 @@ def test_outreach_and_disclosure_appear_in_the_record(accepted, project):
     html = accepted.get(f"/api/projects/{project['id']}/export/report.html").text
     assert "Outreach and disclosure" in html
     assert "Times opened" in html
+
+
+def test_the_ledger_covers_every_table_it_claims_to(accepted, project):
+    """The packet-side records are keyed by their own ids, not the packet's.
+
+    Collecting only project, asset, task and packet ids silently drops the context views,
+    excerpts, outreach messages and reply trail — the exact things the export exists to
+    evidence.
+    """
+    from app.services.export import LEDGER_TABLES
+
+    ids = worked_project(accepted, project)
+    packet = accepted.post(f"/api/projects/{project['id']}/packets",
+                           json={"task_ids": [ids["master"]]}).json()
+    accepted.post(f"/api/packets/{packet['id']}/finalize", json={})
+    accepted.post(f"/api/packets/{packet['id']}/context-views",
+                  json={"recipient_name": "Dana Reyes"})
+
+    tables = {row["table"] for row in
+              rows(accepted.get(f"/api/projects/{project['id']}/export/ledger.csv").text)}
+
+    # Everything this project actually produced must be present.
+    for expected in ("projects", "assets", "clearance_tasks", "outreach_packets",
+                     "packet_tasks", "context_views"):
+        assert expected in tables, f"{expected} missing from the ledger export"
+    assert tables <= set(LEDGER_TABLES)
+
+
+def test_outreach_messages_and_the_reply_trail_reach_the_ledger(accepted, project, monkeypatch):
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "allow_reserved_tld_recipients", True)
+    ids = worked_project(accepted, project)
+    packet = accepted.post(f"/api/projects/{project['id']}/packets",
+                           json={"task_ids": [ids["master"]]}).json()
+    accepted.post(f"/api/packets/{packet['id']}/finalize", json={})
+    assert accepted.post(f"/api/packets/{packet['id']}/send",
+                         json={"allow_unverified": True}).status_code == 200
+
+    tables = {row["table"] for row in
+              rows(accepted.get(f"/api/projects/{project['id']}/export/ledger.csv").text)}
+    assert "outbound_messages" in tables, "what was actually sent must be in the record"

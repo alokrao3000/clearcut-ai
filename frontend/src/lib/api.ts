@@ -338,8 +338,9 @@ export const api = {
   listSessions: () => request<UserSession[]>("/api/auth/sessions"),
   revokeSession: (id: string) =>
     request<void>(`/api/auth/sessions/${id}/revoke`, { method: "POST" }),
+  /** Returns a fresh token: the change revokes every session, this one included. */
   changePassword: (body: { current_password: string; new_password: string }) =>
-    request<void>("/api/auth/password", { method: "POST", json: body }),
+    request<AuthToken>("/api/auth/password", { method: "POST", json: body }),
 
   listOrgUsers: () => request<AppUser[]>("/api/users"),
   createOrgUser: (body: { email: string; name: string; password: string; role: Role }) =>

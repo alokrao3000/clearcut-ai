@@ -211,7 +211,16 @@ def verify_signature(raw_body: bytes, headers: dict, settings: Settings) -> None
     """
     secret = settings.inbound_webhook_secret
     if not secret:
-        log.warning("Inbound webhook signature check skipped: CLEARCUT_INBOUND_WEBHOOK_SECRET is unset.")
+        # Unsigned is only tolerable on a machine the webhook cannot be reached from. Once a
+        # real mail provider is configured the endpoint is public, and an unauthenticated
+        # public endpoint that spends LLM calls and can move clearance tasks is not something
+        # to leave to a warning nobody reads.
+        if (settings.mail_provider or "console").lower() != "console":
+            raise SignatureError(
+                "CLEARCUT_INBOUND_WEBHOOK_SECRET is not set. Refusing unsigned inbound mail "
+                "while a live mail provider is configured.")
+        log.warning("Inbound webhook signature check skipped: CLEARCUT_INBOUND_WEBHOOK_SECRET "
+                    "is unset. This is only safe because mail_provider is 'console'.")
         return
 
     lower = {k.lower(): v for k, v in headers.items()}
